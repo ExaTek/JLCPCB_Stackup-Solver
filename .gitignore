@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+build/
+dist/
+*.tmp
+# per-user state, caches and logs (the app keeps them in the user folder now)
+logs/
+data/app_state.json
+data/engine_cache.json
+data/ui_*.png
+# local only
+*.lnk
+NEXT_STEPS.md
+scenarios/
