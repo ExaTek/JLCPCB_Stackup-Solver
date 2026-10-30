@@ -9,13 +9,23 @@ JLCPCB's own online Si9000 calculator. Interface in English and Russian.
 
 ## Download and run
 
-Grab the archive for your system from [Releases](../../releases), unpack it anywhere you can
-write to and start the program. Nothing to install, no Python needed.
+Download the ready program for your system, unpack it anywhere you can write to and start it.
+Nothing to install, no Python needed.
 
-| system | archive | start |
+| system | download (ready program) | start |
 |---|---|---|
-| Windows 10/11 x64 | `JLCPCB-Stackup-Solver-windows-x64.zip` | `JLCPCB-Stackup-Solver.exe` (SmartScreen: *More info → Run anyway*) |
-| Linux x64, glibc 2.35+ (Ubuntu 22.04+, Debian 12+, Fedora 36+) | `JLCPCB-Stackup-Solver-linux-x64.tar.gz` | `./JLCPCB-Stackup-Solver` |
+| **Windows** 10/11 x64 | **[JLCPCB-Stackup-Solver-windows-x64.zip](https://github.com/ExaTek/JLCPCB_Stackup-Solver/releases/latest/download/JLCPCB-Stackup-Solver-windows-x64.zip)** | unpack, run `JLCPCB-Stackup-Solver.exe` (SmartScreen: *More info → Run anyway*) |
+| **Linux** x64, glibc 2.35+ (Ubuntu 22.04+, Debian 12+, Fedora 36+) | **[JLCPCB-Stackup-Solver-linux-x64.tar.gz](https://github.com/ExaTek/JLCPCB_Stackup-Solver/releases/latest/download/JLCPCB-Stackup-Solver-linux-x64.tar.gz)** | `tar xzf JLCPCB-Stackup-Solver-linux-x64.tar.gz && ./JLCPCB-Stackup-Solver/JLCPCB-Stackup-Solver` |
+
+> "Source code (zip / tar.gz)" on the [Releases](../../releases) page is added by GitHub
+> automatically: that is the source, not the program.
+
+| система | скачать (готовая программа) |
+|---|---|
+| **Windows** | **[JLCPCB-Stackup-Solver-windows-x64.zip](https://github.com/ExaTek/JLCPCB_Stackup-Solver/releases/latest/download/JLCPCB-Stackup-Solver-windows-x64.zip)** — распаковать, запустить `JLCPCB-Stackup-Solver.exe` |
+| **Linux** | **[JLCPCB-Stackup-Solver-linux-x64.tar.gz](https://github.com/ExaTek/JLCPCB_Stackup-Solver/releases/latest/download/JLCPCB-Stackup-Solver-linux-x64.tar.gz)** — распаковать, запустить `./JLCPCB-Stackup-Solver` |
+
+«Source code» на странице релиза GitHub добавляет сам — это исходники, не программа.
 
 ```
 JLCPCB-Stackup-Solver/
