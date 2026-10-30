@@ -30,13 +30,13 @@
 - кнопка **«Сохранить для Altium…»** — файл `.stackup`; в AD: Layer Stack Manager → File → Load Stackup;
 - кнопка **«Сверить с JLC»** — найденные ширины пересчитываются онлайн-солвером самого JLC; его импеданс показывается голубым рядом с нашим расчётом (серым), кнопка становится зелёной.
 
-**Если приложение падает:** запустите его с ключом `--debug` (из исходников: `python jlcapp.pyw --debug`) — в консоли появится живой журнал. Пишутся:
-- в `logs/app_debug.log` — все действия, параметры и время каждого подбора, ошибки Python и предупреждения Qt;
-- в `logs/crash.log` — стек всех потоков при жёстком падении процесса (faulthandler).
+**Если приложение падает:** запустите его с ключом `--debug` (из исходников: `python -m jlc --debug`) — в консоли появится живой журнал. Пишутся:
+- в `data/logs/app_debug.log` — все действия, параметры и время каждого подбора, ошибки Python и предупреждения Qt;
+- в `data/logs/crash.log` — стек всех потоков при жёстком падении процесса (faulthandler).
 
-Без `--debug` ошибки записываются в `logs/app.log`.
+Без `--debug` ошибки записываются в `data/logs/app.log`.
 
-Настройки, кэши и журналы лежат в папке пользователя: Windows — `%LOCALAPPDATA%\JLCPCB-Stackup-Solver`, Linux — `~/.local/share/JLCPCB-Stackup-Solver` (или `$XDG_DATA_HOME`); переменная `JLC_STACKUP_HOME` задаёт другую папку. Первый расчёт новой комбинации занимает до минуты, дальше результаты берутся из кэша `engine_cache.json`. Настройки формы — `app_state.json`.
+Всё, что меняется, лежит в папке `data/` рядом с программой (рядом с `.exe` или в корне репозитория): база стеков, ответы JLC, настройки формы `settings.json`, кэш расчётов `cache/` и журналы `logs/`. Если в эту папку нельзя писать (например, программа лежит в Program Files), изменяемые файлы уходят в папку пользователя: Windows — `%LOCALAPPDATA%\JLCPCB-Stackup-Solver`, Linux — `~/.local/share/JLCPCB-Stackup-Solver`. Переменная `JLC_STACKUP_HOME` задаёт другую папку (тесты, CI). Первый расчёт новой комбинации занимает до минуты, дальше результаты берутся из кэша.
 
 ### Как подбираются W и S
 
@@ -44,7 +44,7 @@
 - **Diff:** W = мин. ширина, S — из Z. Если S < мин. зазора, берётся S = мин. зазор и пересчитывается W. Если S > макс. зазора, требование засчитывается, только если Z в допуске.
 - Ширины округляются до шага, Z показывается уже для округлённой геометрии.
 
-### Файл для Altium (`jlc/altium.py`)
+### Файл для Altium (`jlc/export/altium.py`)
 
 Структура полей повторяет файл, сохранённый самим AD (Layer Stack Manager → File → Save Stackup). В файл попадают:
 - верхний и нижний слой маски с толщиной и Dk;
@@ -56,40 +56,43 @@
 
 Все медные слои записываются как Signal: плейны рисуются полигонами. AD при открытии может пересчитать ширины своим солвером (`CALCMODE=1`). Для производства верны ширины, посчитанные по модели JLC: они видны в таблице результатов.
 
-Пример: `examples/JLC081611-1080B_SGSPPSGS.stackup` (8 слоёв, SGSPPSGS, «Пример с DDR»: профили S40, DIFF80, S50, DIFF85, DIFF90, DIFF100 — у каждого ширины на TOP, SIG1, SIG2 и BOTTOM).
+Пример: [`example_JLC081611-1080B_SGSPPSGS.stackup`](example_JLC081611-1080B_SGSPPSGS.stackup) (8 слоёв, SGSPPSGS, «Пример с DDR»: профили S40, DIFF80, S50, DIFF85, DIFF90, DIFF100 — у каждого ширины на TOP, SIG1, SIG2 и BOTTOM).
 
 ## Командная строка
 
 ```
-python jlcstack.py list   --layers 8 --thick 1.6 [--inner 0.5] [--free]
-python jlcstack.py show   JLC081611-1080B
-python jlcstack.py widths JLC081611-1080B [--layers L1,L3] [--se 40,50] [--diff 80,85,90,100] [--online]
-python jlcstack.py z      JLC081611-1080B --layer L3 --w 5 [--s 4.2] [--refs L2,L4] [--online]
-python jlcstack.py rank   --layers 8 --thick 1.6,2.0 [--inner 0.5,1]
-python jlcstack.py update          # перекачать заказываемые стеки, доплаты и конфиги JLC (~7 мин)
-python jlcstack.py prices          # только пересчитать доплаты за стек (~2 мин)
-python jlcstack.py validate [--new 200]   # сверка офлайн-солвера с Si9000 JLC
+python -m jlc list   --layers 8 --thick 1.6 [--inner 0.5] [--free]
+python -m jlc show   JLC081611-1080B
+python -m jlc widths JLC081611-1080B [--layers L1,L3] [--se 40,50] [--diff 80,85,90,100] [--online]
+python -m jlc z      JLC081611-1080B --layer L3 --w 5 [--s 4.2] [--refs L2,L4] [--online]
+python -m jlc rank   --layers 8 --thick 1.6,2.0 [--inner 0.5,1]
+python -m jlc update          # перекачать заказываемые стеки, доплаты и конфиги JLC (~7 мин)
+python -m jlc prices          # только пересчитать доплаты за стек (~2 мин)
+python -m jlc validate [--new 200]   # сверка офлайн-солвера с Si9000 JLC
 ```
 
 ## Данные (`data/`)
 
 | файл | что |
 |---|---|
-| `templates.json.gz` | **только заказываемые** стеки (574 шт., 4–20 слоёв): слои, толщины, Dk |
-| `order_options.json` | что предлагает форма заказа JLC: доплата (`fixedFee`/`coefficient`), ускоренное производство |
-| `configs.json` | модель JLC: толщина меди и подтрав по весу, маска, модели Si9000 |
-| `jlc_calc_cache.json` | ответы солвера JLC (эталон для `jlcstack.py validate`); новые ответы дописываются в копию в папке пользователя |
+| `jlcpcb_stackups.zip` | база стеков, обновляется кнопкой «Настройки → Обновить базу стеков» или `python -m jlc update`: |
+| — `templates.json` | **только заказываемые** стеки (574 шт., 4–20 слоёв): слои, толщины, Dk |
+| — `order_options.json` | что предлагает форма заказа JLC: доплата за стек, ускоренное производство |
+| — `configs.json` | модель JLC: толщина меди и подтрав по весу, маска, модели Si9000 |
+| — `meta.json` | когда обновлено, сколько стеков |
+| `jlc_calc_cache.json` | ответы солвера JLC (эталон для `python -m jlc validate`), дописывается при каждой сверке |
+| `settings.json`, `cache/`, `logs/` | создаются программой, в репозиторий не попадают |
 
 Для 8 слоёв форма заказа предлагает только 0.8/1.0/1.2/1.6/2.0/2.5/3.0 мм, толщины 1.4 мм нет. Доплата берётся из `getImpedanceTemplateSettings` (cart.jlcpcb.com) и сейчас бывает 0, 330 (+55) или 550 (+110); в чём она, API не указывает.
 
-## Правила JLC (`jlc/stackup.py`)
+## Правила JLC (`jlc/core/stackup.py`)
 
 - Внешний слой: `CoatedMicrostrip1B`, T = 1.6 mil, W2 = W1 − 0.5, маска C1 = 1.0, C2 = 0.6, C3 = 1.0 mil, Er 3.8 (для 1 oz).
 - Внутренний слой: `OffsetStripline1B1A`; H1 — ядро до опоры, H2 — препрег до второй опоры плюс медь слоя; Er — среднее.
 - Внутренняя медь: 0.5 oz → T = 0.6, подтрав 0.5; 1 oz → 1.2 / 0.8; 2 oz → 2.5 / 1.2.
 - Совпадение с собственной функцией страницы JLC проверено.
 
-## Точность офлайн-солвера (`jlc/solver.py`)
+## Точность офлайн-солвера (`jlc/core/solver.py`)
 
 Сверка с Si9000 JLC на 400 случайных геометриях — худший случай ±0.27%:
 
@@ -100,12 +103,12 @@ python jlcstack.py validate [--new 200]   # сверка офлайн-солве
 | CoatedMicrostrip1B | +0.06% | 0.09% | +0.27% |
 | DiffEdgeCoupledCoatedMicrostrip1B | 0.00% | 0.07% | +0.20% |
 
-## API JLC (`jlc/api.py`)
+## API JLC (`jlc/jlcpcb/api.py`)
 
 - Шаблоны: `POST jlcpcb.com/api/jlcTools/impedance/selectPageImpedanceDefaultTemplate`, страница задаётся `pageNum` (параметр `currentPage` сервер игнорирует).
 - Что можно заказать: `POST cart.jlcpcb.com/api/overseas-core-platform/shoppingCart/getImpedanceTemplateSettings` с телом `{stencilLayer, stencilPly, cuprumThickness, insideCuprumThickness}`.
 - Расчёт: `POST .../impedance/calc` — ответ приходит не в HTTP, а по `wss://tools.jlc.com/jlcTools/webSocket/<uuid>`. Работает только прямой расчёт W → Z.Многие шаблоны калькулятора заказать нельзя. Например, у 8-слойных плат в форме нет толщины 1.4 мм.
 
-**Доплата за стек** — это реальная цена из формы заказа JLC (`calculationGoodsCostsNew`, поле `stackupMoney`) для эталона «5 плат 100×100 мм». Обновляется командой `python jlcstack.py prices` (~2 мин) или вместе со всем остальным — `python jlcstack.py update`.
+**Доплата за стек** — это реальная цена из формы заказа JLC (`calculationGoodsCostsNew`, поле `stackupMoney`) для эталона «5 плат 100×100 мм». Обновляется вместе со всей базой (кнопка в «Настройках», `python -m jlc update`) или отдельно — `python -m jlc prices` (~2 мин).
 
 Поля `fixedFee`/`coefficient` из списка стеков с доплатой **не связаны**: при `fixedFee=0` стек может стоить +$84. Без доплаты обычно только стандартный стек каждой комбинации. Внутренняя медь 1 oz добавляет ещё ≈$17 (эталон тот же). Для другого размера и количества суммы другие, но порядок «дешевле/дороже» сохраняется. Действующая акция JLC может скрывать доплату в итоговой цене.

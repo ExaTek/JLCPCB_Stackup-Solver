@@ -29,11 +29,11 @@ import time
 
 from scipy.optimize import brentq
 
-from . import paths as P
+from .. import paths as P
 from . import stackup as ST
 from .solver import impedance
 
-CACHE_PATH = os.path.join(P.USER, "engine_cache.json")
+CACHE_PATH = os.path.join(P.CACHE, "engine_cache.json")
 _lock = threading.Lock()
 _cache = None
 FINE = 1.0
@@ -355,7 +355,7 @@ def all_layers(stack, result, reqs, lim=None, mask=None):
 
 def jlc_check(stack, result, reqs, mask=None):
     """JLC's own Si9000 for every computed cell: {req_name: {layer: Z}}."""
-    from . import cache as C
+    from ..jlcpcb import cache as C
     rows = {x["layer"]: x for x in result["layers"]}
     jobs, where = [], []
     for req, rr in zip(reqs, result["reqs"]):

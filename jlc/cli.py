@@ -1,29 +1,25 @@
-"""JLCPCB stackup & impedance tool (offline by default, --online = JLC's Si9000).
+"""Command line (offline by default, --online = JLC's Si9000). `python -m jlc` alone opens the window.
 
-  python jlcstack.py ui                             desktop app (same as jlcapp.pyw), AD .stackup export
-  python jlcstack.py update                         re-download templates, order options, surcharges, configs (~7 min)
-  python jlcstack.py prices [--layers 4,6,8,10]     only re-price the stackup surcharges (~2 min)
-  python jlcstack.py validate [--new 200]           offline solver vs JLC's Si9000 (cached answers [+ new online])
-  python jlcstack.py list   --layers 8 --thick 1.6 [--inner 0.5] [--free]
-  python jlcstack.py show   JLC081611-1080G
-  python jlcstack.py widths JLC081611-1080G [--se 40,50] [--diff 80,90,100] [--online]
-  python jlcstack.py z      JLC081611-1080G --layer L3 --w 5 [--s 4.2] [--refs L2,L4] [--online]
-  python jlcstack.py rank   --layers 8 --thick 1.6,2.0 [--inner 0.5,1] [--se 40,50] [--diff 80,90,100]
+  python -m jlc list     --layers 8 --thick 1.6 [--inner 0.5] [--free]
+  python -m jlc show     JLC081611-1080G
+  python -m jlc widths   JLC081611-1080G [--se 40,50] [--diff 80,90,100] [--online]
+  python -m jlc z        JLC081611-1080G --layer L3 --w 5 [--s 4.2] [--refs L2,L4] [--online]
+  python -m jlc rank     --layers 8 --thick 1.6,2.0 [--inner 0.5,1] [--se 40,50] [--diff 80,90,100]
+  python -m jlc update                      refresh the stack database from JLCPCB (~7 min)
+  python -m jlc prices   [--layers 4,6,8,10]   only re-price the stackup surcharges (~2 min)
+  python -m jlc validate [--new 200]        offline solver vs JLC's Si9000 (cached answers [+ new online])
 """
 import argparse
 import concurrent.futures as cf
-import gzip
-import itertools
 import json
-import os
 import random
 import statistics
 import sys
 import time
 
-from jlc import design as D
-from jlc import stackup as S
-from jlc.solver import impedance
+from .core import design as D
+from .core import stackup as S
+from .core.solver import impedance
 
 
 def floats(s):
@@ -47,76 +43,25 @@ def cost(s):
     return s.cost()
 
 
-# ------------------------------------------------------------------ data refresh
-THICK = [0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.4, 2.5, 2.6, 3.0, 3.2]
-PRICED = [4, 6, 8, 10]                  # layer counts the app offers: their surcharges are priced
-
-
-def _retry(fn, *args):
-    for i in range(3):
-        try:
-            return fn(*args)
-        except OSError:
-            time.sleep(1 + i)
-    return None
-
-
-def fetch_options(layers):
-    from jlc import api
-    specs = list(itertools.product(layers, THICK, [0.5, 1, 2], [1, 2]))
-    with cf.ThreadPoolExecutor(8) as ex:
-        return [o for lst in ex.map(lambda sp: _retry(api.fetch_order_options, *sp), specs) for o in (lst or [])]
-
-
-def add_prices(opts):
-    """Real stackup surcharge from JLC's quote form. fixedFee/coefficient of the template list
-    do not reflect what JLC charges; the price API does (orderCountTolls.stackupMoney).
-    Reference board: 100 x 100 mm, 5 pcs (the default quote): the surcharge for other
-    sizes/quantities differs, but the ranking holds."""
-    from jlc import api
-
-    def price(o):
-        p = _retry(api.fetch_price, o["stencilLayer"], float(o["stencilPly"]), float(o["insideCuprumThickness"]),
-                   float(o["cuprumThickness"]), o["impedanceTemplateCode"] if o["showName"] != "No requirement" else None)
-        o["surcharge_usd"] = None if p is None else p["stackup"]
-        o["inner_cu_usd"] = None if p is None else p["inner_cu"]
-        o["price_ref"] = "5 pcs 100x100 mm"
-        return o
-    t0 = time.time()
-    with cf.ThreadPoolExecutor(8) as ex:
-        opts = list(ex.map(price, opts))
-    print(f"priced {len(opts)} options in {time.time() - t0:.0f}s; failed {sum(o['surcharge_usd'] is None for o in opts)}")
-    return opts
-
-
-def save_options(opts):
-    json.dump({"fetched": time.strftime("%Y-%m-%d %H:%M"), "options": opts},
-              open(os.path.join(S.DATA, "order_options.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=0)
-
-
 # ------------------------------------------------------------------ commands
+def _progress(stage, done, total):
+    if total and (done == total or done % 50 == 0):
+        print(f"  {stage}: {done}/{total}", file=sys.stderr)
+    elif not total:
+        print(f"  {stage}...", file=sys.stderr)
+
+
 def cmd_update(a):
-    from jlc import api
+    from .jlcpcb import update as U
     t0 = time.time()
-    opts = fetch_options(range(4, 22, 2))
-    tpl = S.prune(api.fetch_templates(), opts)        # keep only what the quote form offers
-    with gzip.open(os.path.join(S.DATA, "templates.json.gz"), "wt", encoding="utf-8") as f:
-        json.dump({"meta": {"fetched": time.strftime("%Y-%m-%d %H:%M"), "count": len(tpl),
-                            "note": "orderable only (data/order_options.json)"}, "templates": tpl},
-                  f, ensure_ascii=False, separators=(",", ":"))
-    json.dump(api.fetch_configs(), open(os.path.join(S.DATA, "configs.json"), "w", encoding="utf-8"),
-              ensure_ascii=False, indent=1)
-    priced = add_prices([o for o in opts if o["stencilLayer"] in PRICED])
-    save_options([o for o in opts if o["stencilLayer"] not in PRICED] + priced)
-    print(f"{len(tpl)} orderable templates, {len(opts)} order options saved in {time.time() - t0:.0f}s")
+    m = U.refresh(_progress)
+    print(f"{m['templates']} orderable stackups, {m['options']} order options saved in {time.time() - t0:.0f}s")
 
 
 def cmd_prices(a):
-    layers = [int(x) for x in a.layers.split(",")]
-    old = json.load(open(os.path.join(S.DATA, "order_options.json"), encoding="utf-8"))["options"]
-    opts = fetch_options(layers)
-    print(f"{len(opts)} order options for layers {layers}")
-    save_options([o for o in old if o["stencilLayer"] not in layers] + add_prices(opts))
+    from .jlcpcb import update as U
+    m = U.reprice([int(x) for x in a.layers.split(",")], _progress)
+    print(f"saved: {m['options']} order options")
 
 
 def _random_case(rng):
@@ -140,7 +85,7 @@ def _random_case(rng):
 
 def cmd_validate(a):
     """Compare the offline solver with JLC's Si9000 on random geometries."""
-    from jlc import cache as C
+    from .jlcpcb import cache as C
     cache = C.Cache()
     if a.new:
         rng = random.Random(len(cache.d))
@@ -195,7 +140,7 @@ def solve_layer(s, L, se, df, online=False, wmin=4.0, smin=4.0):
                 opts.append((W, gap))
         res["diff"][Z] = opts
     if online:
-        from jlc import cache as C
+        from .jlcpcb import cache as C
         jobs = [(ms, D._p(g, round(w, 2))) for Z, w in res["se"].items() if w]
         jobs += [(md, D._p(gd, w, round(sg, 2))) for opts in res["diff"].values() for w, sg in opts]
         try:
@@ -245,7 +190,7 @@ def cmd_z(a):
     z, ereff = impedance(m, p, 1.5)
     print(f"{s.name} {a.layer} {m} {p}\n  offline: Z={z:.2f} Ohm  Er_eff={ereff:.3f}")
     if a.online:
-        from jlc import cache as C
+        from .jlcpcb import cache as C
         try:
             print(f"  JLC Si9000: Z={C.online([(m, p)])[0]}")
         except OSError as e:
@@ -351,17 +296,12 @@ def cmd_rank(a):
         print(f"    {'L1':5s}{ohead}\n    {'':5s}" + " ".join(cell(v) for v in outer[0].values()))
 
 
-def cmd_ui(a):
-    from jlc.app import main as app_main
-    app_main()
-
-
 def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(prog="python -m jlc", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("update")
-    sub.add_parser("ui")
-    sub.add_parser("prices").add_argument("--layers", default=",".join(map(str, PRICED)))
+    sub.add_parser("prices").add_argument("--layers", default="4,6,8,10")
     p = sub.add_parser("validate")
     p.add_argument("--new", type=int, default=0, help="add this many fresh random JLC solves first (online)")
     p.add_argument("--fine", type=float, default=1.5)

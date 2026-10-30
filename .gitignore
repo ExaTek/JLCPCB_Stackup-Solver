@@ -4,12 +4,14 @@ __pycache__/
 build/
 dist/
 *.tmp
-# per-user state, caches and logs (the app keeps them in the user folder now)
-logs/
-data/app_state.json
-data/engine_cache.json
-data/ui_*.png
+# what the program writes into data/ (settings, caches, logs)
+data/settings.json
+data/selftest.log
+data/cache/
+data/logs/
+data/.write_test*
 # local only
 *.lnk
 NEXT_STEPS.md
 scenarios/
+logs/

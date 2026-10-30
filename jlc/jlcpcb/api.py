@@ -105,8 +105,8 @@ def fetch_price(layers, thickness, inner_oz, outer_oz=1, template_code=None, wid
     """Real quote-form price in USD. NB: fixedFee/coefficient of the template list do NOT
     show the stackup surcharge; this does (orderCountTolls.stackupMoney).
     Returns {stackup, inner_cu, regular, special} (special = promo price shown, if any)."""
-    from .paths import data
-    body = json.load(open(data("price_request.json"), encoding="utf-8"))
+    from ..paths import resource
+    body = json.load(open(resource("price_request.json"), encoding="utf-8"))
     g = body["pcbGoodsRequest"]
     g.update(stencilLayer=layers, stencilPly=f"{thickness:g}", insideCuprumThickness=inner_oz,
              cuprumThickness=outer_oz, stencilWidth=width, stencilLength=length, stencilWidthInch=width,
@@ -135,16 +135,26 @@ class _WS:
     """Minimal RFC 6455 client: text frames in, pong/close out."""
 
     def __init__(self, host, path, tries=3):
-        for attempt in range(tries):        # tools.jlc.com sometimes drops the first connects
+        # tools.jlc.com now and then hangs in the TCP connect or the TLS handshake (normally
+        # 0.3 s each): the whole handshake is retried with a short timeout
+        for attempt in range(tries):
             try:
-                raw = socket.create_connection((host, 443), timeout=10)
-                break
+                self._open(host, path)
+                return
             except OSError:
+                if getattr(self, "s", None):
+                    self.s.close()
                 if attempt == tries - 1:
                     raise
                 time.sleep(1 + attempt)
-        raw.settimeout(30)
-        self.s = ssl.create_default_context().wrap_socket(raw, server_hostname=host)
+
+    def _open(self, host, path):
+        raw = socket.create_connection((host, 443), timeout=10)
+        try:
+            self.s = ssl.create_default_context().wrap_socket(raw, server_hostname=host)
+        except OSError:
+            raw.close()
+            raise
         key = base64.b64encode(os.urandom(16)).decode()
         self.s.sendall((f"GET {path} HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\n"
                         f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n"

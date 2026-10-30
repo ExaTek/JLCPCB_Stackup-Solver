@@ -7,4 +7,4 @@ if [ ! -x .venv/bin/python ]; then
     .venv/bin/python -m pip install --upgrade pip
     .venv/bin/python -m pip install -r requirements.txt
 fi
-exec .venv/bin/python jlcapp.pyw "$@"
+exec .venv/bin/python -m jlc "$@"

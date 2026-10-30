@@ -2,12 +2,11 @@
 
 Key = model + rounded parameters, value = impedance from JLC's Si9000 (or None
 when JLC rejected the parameters). Every online solve lands here, so it doubles
-as reference data for validating the offline solver. The copy shipped in data/
-seeds it; new answers are saved in the user folder."""
+as reference data for validating the offline solver (`python -m jlc validate`)."""
 import json
 import os
 
-from . import paths
+from .. import paths
 
 NAME = "jlc_calc_cache.json"
 _PARAMS = ("H1", "Er1", "H2", "Er2", "W1", "W2", "T1", "S1", "C1", "C2", "C3", "CEr")
@@ -24,11 +23,9 @@ def parse_key(k):
 
 class Cache:
     def __init__(self, path=None):
-        self.path = os.path.abspath(path or os.path.join(paths.USER, NAME))
-        self.d = {}
-        for src in ([] if path else [paths.data(NAME)]) + [self.path]:
-            if os.path.exists(src):
-                self.d.update(json.load(open(src, encoding="utf-8")))
+        src = path or paths.shipped(NAME)
+        self.path = os.path.abspath(path or paths.data(NAME))
+        self.d = json.load(open(src, encoding="utf-8")) if os.path.exists(src) else {}
 
     def get(self, model, p):
         return self.d.get(key(model, p), "miss")

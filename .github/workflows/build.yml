@@ -1,5 +1,5 @@
-# Builds the single-file app for Windows and Linux, runs each build's self-test,
-# and on a v* tag attaches both to a GitHub release.
+# Builds the program folder (exe + lib/ + data/) for Windows and Linux, runs each build's
+# self-test, and on a v* tag attaches both archives to a GitHub release.
 name: build
 
 on:
@@ -16,10 +16,10 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            exe: dist/JLCPCB-Stackup-Solver.exe
-            asset: JLCPCB-Stackup-Solver-windows-x64.exe
+            exe: dist/JLCPCB-Stackup-Solver/JLCPCB-Stackup-Solver.exe
+            asset: JLCPCB-Stackup-Solver-windows-x64.zip
           - os: ubuntu-22.04          # glibc 2.35: Ubuntu 22.04+, Debian 12+, Fedora 36+, RHEL 9+
-            exe: dist/JLCPCB-Stackup-Solver
+            exe: dist/JLCPCB-Stackup-Solver/JLCPCB-Stackup-Solver
             asset: JLCPCB-Stackup-Solver-linux-x64.tar.gz
     runs-on: ${{ matrix.os }}
     steps:
@@ -41,25 +41,26 @@ jobs:
         shell: bash
         env:
           JLC_STACKUP_HOME: ${{ runner.temp }}/home-src
-        run: python jlcapp.pyw --selftest
+        run: python -m jlc --selftest
       - name: Build
-        run: pyinstaller --noconfirm JLCPCB-Stackup-Solver.spec
-      - name: Self-test of the packaged build
+        run: pyinstaller --noconfirm packaging/JLCPCB-Stackup-Solver.spec
+      - name: Self-test of the packaged build (writes into its own data/)
         shell: bash
-        env:
-          JLC_STACKUP_HOME: ${{ runner.temp }}/home-exe
         run: |
           code=0
           "${{ matrix.exe }}" --selftest || code=$?
-          cat "$JLC_STACKUP_HOME/selftest.log"
+          d=dist/JLCPCB-Stackup-Solver/data
+          cat "$d/selftest.log"
+          rm -rf "$d/selftest.log" "$d/settings.json" "$d/cache" "$d/logs"
           exit $code
       - name: Package
         shell: bash
         run: |
+          cd dist
           if [ "$RUNNER_OS" = "Linux" ]; then
-            tar -czf "dist/${{ matrix.asset }}" -C dist JLCPCB-Stackup-Solver
+            tar -czf "${{ matrix.asset }}" JLCPCB-Stackup-Solver
           else
-            mv "${{ matrix.exe }}" "dist/${{ matrix.asset }}"
+            7z a -tzip "${{ matrix.asset }}" JLCPCB-Stackup-Solver > /dev/null
           fi
       - uses: actions/upload-artifact@v4
         with:

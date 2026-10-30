@@ -9,12 +9,12 @@ against the page's own function on 2026-10-30):
 * Er = plain average of the dielectric layers in each span.
 * W2 = W1 - traceWidthDelta, T1 = traceCopperThickness (config tables).
 """
-import gzip
 import json
-import os
 import re
+import threading
+import zipfile
 
-from .paths import DATA
+from .. import paths
 
 MIL = 1 / 0.0254
 
@@ -33,36 +33,42 @@ def translate(s):
     return s.replace("（", "(").replace("）", ")")
 
 
-_TEMPLATES, _CONFIGS = None, None
+_DB, _ORDER = None, None
+_db_lock = threading.Lock()
+
+
+def db():
+    """The stack database jlcpcb_stackups.zip (see jlc.jlcpcb.update):
+    {"templates": [...], "order_options": [...], "configs": {...}, "meta": {...}}."""
+    global _DB
+    with _db_lock:
+        if _DB is None:
+            with zipfile.ZipFile(paths.shipped(paths.DB)) as z:
+                _DB = {n[:-5]: json.loads(z.read(n).decode("utf-8")) for n in z.namelist() if n.endswith(".json")}
+        return _DB
+
+
+def reload():
+    """Forget the loaded database (after an update)."""
+    global _DB, _ORDER
+    with _db_lock:
+        _DB = _ORDER = None
 
 
 def load_templates():
-    global _TEMPLATES
-    if _TEMPLATES is None:
-        with gzip.open(os.path.join(DATA, "templates.json.gz"), "rt", encoding="utf-8") as f:
-            _TEMPLATES = json.load(f)
-    return _TEMPLATES
+    return db()["templates"]
 
 
 def load_configs():
-    global _CONFIGS
-    if _CONFIGS is None:
-        _CONFIGS = json.load(open(os.path.join(DATA, "configs.json"), encoding="utf-8"))
-    return _CONFIGS
-
-
-_ORDER = None
+    return db()["configs"]
 
 
 def order_options():
-    """{(name, layers, thickness, inner_oz, outer_oz): option} from the quote form
-    (data/order_options.json, see api.fetch_order_options)."""
+    """{(name, layers, thickness, inner_oz, outer_oz): option} from the quote form."""
     global _ORDER
     if _ORDER is None:
-        path = os.path.join(DATA, "order_options.json")
-        opts = json.load(open(path, encoding="utf-8"))["options"] if os.path.exists(path) else []
         _ORDER = {(o["templateName"], o["stencilLayer"], float(o["stencilPly"]), float(o["insideCuprumThickness"]),
-                   float(o["cuprumThickness"])): o for o in opts if o["showName"] != "No requirement"}
+                   float(o["cuprumThickness"])): o for o in db()["order_options"] if o["showName"] != "No requirement"}
     return _ORDER
 
 
@@ -233,7 +239,7 @@ class Stack:
 
 
 def stacks(templates=None, cfg=None, layers=None, include_hdi=False, include_custom=False):
-    templates = templates or load_templates()["templates"]
+    templates = templates or load_templates()
     cfg = cfg or load_configs()
     out, seen = [], set()
     for t in templates:

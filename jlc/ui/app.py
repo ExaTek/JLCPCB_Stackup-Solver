@@ -23,14 +23,14 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComb
                                QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout,
                                QWidget)
 
-from . import altium as A
-from . import engine as E
+from .. import paths as P
+from ..core import engine as E
+from ..core import stackup as ST
+from ..export import altium as A
 from . import i18n
-from . import paths as P
 from .i18n import tr
-from . import stackup as ST
 
-STATE_PATH = os.path.join(P.USER, "app_state.json")
+STATE_PATH = os.path.join(P.DATA, "settings.json")
 LOGDIR = P.LOGS
 LOG = logging.getLogger("jlcapp")
 MM = 0.0254
@@ -425,6 +425,8 @@ class Bridge(QObject):
     done = Signal(object, object)
     failed = Signal(str)
     checked = Signal(object, object)
+    dbprog = Signal(str, int, int)
+    dbdone = Signal(object)
 
 
 # ---------------------------------------------------------------- main window
@@ -440,11 +442,14 @@ class Main(QMainWindow):
         self.results, self.all_results, self.spec_used, self.cur = [], [], None, None
         self.last_prog = None                   # (done, total) of the running search
         self.tiers = {"ok"}                     # result groups shown (TIERS keys)
+        self.db_state = None                    # stack database update: ("run", stage, done, total) | ("error", msg)
         self.br = Bridge()
         self.br.progress.connect(self._on_progress)
         self.br.done.connect(self._on_done)
         self.br.failed.connect(self._on_failed)
         self.br.checked.connect(self._on_checked)
+        self.br.dbprog.connect(self._on_db_progress)
+        self.br.dbdone.connect(self._on_db_done)
         i18n.LANG = self.st.get("lang", "ru")
         self._build()
 
@@ -588,12 +593,15 @@ class Main(QMainWindow):
         self.mask_card = Card("Маска и покрытие", collapsible=True, collapsed=True,
                               tip="параметры паяльной маски и финишного покрытия")
         v.addWidget(self.mask_card)
+        self.set_card = Card("Настройки", collapsible=True, collapsed=True, tip="база стеков JLCPCB и папка данных")
+        v.addWidget(self.set_card)
         v.addStretch()
         self._render_board()
         self._render_plan()
         self._render_reqs()
         self._render_lim()
         self._render_mask()
+        self._render_settings()
 
         sa = QScrollArea()
         sa.setWidgetResizable(True)
@@ -972,6 +980,85 @@ class Main(QMainWindow):
         n.setWordWrap(True)
         bl.addWidget(n)
         self._loc(self.mask_card)
+
+    # settings: stack database ----------------------------
+    DB_STAGES = {"options": "варианты заказа", "templates": "шаблоны стеков", "configs": "модель JLC",
+                 "prices": "доплаты"}
+
+    def _render_settings(self):
+        bl = self.set_card.bl
+        self._clear(bl)
+        h = QHBoxLayout()
+        self.btn_db = QPushButton("Обновить базу стеков")
+        self.btn_db.setToolTip("скачать с JLCPCB актуальные стеки, варианты формы заказа и доплаты:\n"
+                               "несколько минут, около 1500 запросов; программой можно пользоваться,\n"
+                               "старая база остаётся, пока новая не скачана целиком")
+        self.btn_db.clicked.connect(self._update_db)
+        h.addWidget(self.btn_db)
+        self.lbl_db = QLabel()
+        self.lbl_db.setWordWrap(True)
+        h.addWidget(self.lbl_db, 1)
+        bl.addLayout(h)
+        d = QLabel(f"папка данных: {P.DATA}")
+        d.setObjectName("mute")
+        d.setWordWrap(True)
+        d.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        d.setToolTip("настройки, кэш расчётов, журналы и база стеков")
+        bl.addWidget(d)
+        self._loc(self.set_card)
+        self._db_label()
+
+    def _db_label(self):
+        st = self.db_state
+        self.btn_db.setEnabled(not (st and st[0] == "run"))
+        if st and st[0] == "run":
+            _, stage, done, total = st
+            text = f"обновляю: {self.DB_STAGES.get(stage, stage)}" + (f" {done} из {total}" if total else "…")
+            color = C["text"]
+        else:
+            m = ST.db()["meta"]
+            text = f"обновлено {m['updated']} · стеков {m['templates']}"
+            color = C["mute"]
+            if st:
+                text = f"ошибка обновления: {st[1]}\n" + text
+                color = C["warn"]
+        self.lbl_db.setText(tr(text))
+        self.lbl_db.setStyleSheet(f"color:{color}")
+
+    def _update_db(self):
+        if self.db_state and self.db_state[0] == "run":
+            return
+        self.db_state = ("run", "options", 0, 0)
+        self._db_label()
+        LOG.info("stack database update")
+
+        def job():
+            from ..jlcpcb import update as U
+            try:
+                self.br.dbdone.emit(U.refresh(lambda stage, d, n: self.br.dbprog.emit(stage, d, n)))
+            except OSError as e:
+                LOG.exception("stack database update failed")
+                self.br.dbdone.emit({"__error__": f"нет связи с JLCPCB ({e.__class__.__name__})"})
+            except Exception as e:
+                LOG.exception("stack database update failed")
+                self.br.dbdone.emit({"__error__": f"{e.__class__.__name__}: {e}"})
+        threading.Thread(target=job, daemon=True, name="db-update").start()
+
+    def _on_db_progress(self, stage, done, total):
+        self.db_state = ("run", stage, done, total)
+        self._db_label()
+
+    def _on_db_done(self, out):
+        if "__error__" in out:
+            self.db_state = ("error", out["__error__"])
+            self._status("база стеков не обновлена: " + out["__error__"])
+        else:
+            LOG.info("stack database updated: %s", out)
+            self.db_state = None
+            self.meta = self._meta()
+            self._render_board()
+            self._status(f"база стеков обновлена: {out['templates']} стеков; нажмите «Подобрать стек», чтобы пересчитать")
+        self._db_label()
 
     def _mask_set(self, i, v):
         self.st["mask"] = self.st["mask"] or self._jlc_mask()
@@ -1435,7 +1522,8 @@ class Main(QMainWindow):
 
 def arrow_qss():
     """Combo-box arrow as a small generated PNG (Qt QSS has no CSS triangles)."""
-    path = P.user("ui_arrow.png")
+    os.makedirs(P.CACHE, exist_ok=True)
+    path = os.path.join(P.CACHE, "ui_arrow.png")
     if not os.path.exists(path):
         pm = QPixmap(10, 6)
         pm.fill(Qt.transparent)
@@ -1446,7 +1534,7 @@ def arrow_qss():
         p.drawPolygon([QPointF(0, 0), QPointF(10, 0), QPointF(5, 6)])
         p.end()
         pm.save(path)
-    check = P.user("ui_check.png")
+    check = os.path.join(P.CACHE, "ui_check.png")
     if not os.path.exists(check):
         pm = QPixmap(15, 15)
         pm.fill(Qt.transparent)
@@ -1566,8 +1654,9 @@ def selftest():
         import traceback
         lines.append(traceback.format_exc())
         ok = False
-    lines.append(f"{'OK' if ok else 'FAILED'} ({P.ROOT}, frozen={P.FROZEN}, python {sys.version.split()[0]})")
-    with open(P.user("selftest.log"), "w", encoding="utf-8") as f:
+    lines.append(f"{'OK' if ok else 'FAILED'} (program {P.APP_DIR}, data {P.DATA}, frozen={P.FROZEN}, "
+                 f"python {sys.version.split()[0]})")
+    with open(P.data("selftest.log"), "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
     if sys.stdout:
         print("\n".join(lines))
@@ -1581,7 +1670,6 @@ def main():
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         if sys.platform == "win32":             # the offscreen platform does not find Windows fonts itself
             os.environ.setdefault("QT_QPA_FONTDIR", os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts"))
-    P.migrate()
     init_logging(debug)
     if sys.executable.lower().endswith("pythonw.exe"):
         # workers would otherwise start under python.exe and open console windows
