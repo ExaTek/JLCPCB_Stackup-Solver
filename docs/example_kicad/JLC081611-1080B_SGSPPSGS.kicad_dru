@@ -1,0 +1,134 @@
+(version 1)
+# JLCPCB Stackup Solver: JLC081611-1080B, layers SGSPPSGS.
+# Put nets into these net classes (Board Setup > Net Classes); the router then takes
+# the width and pair gap of each layer from the rules below.
+
+# S40: 40 Ohm single-ended, +-5% (DDR S40)
+#   F.Cu 6.5 mil (39.9 Ohm), In2.Cu 5.7 mil (40.1 Ohm), In5.Cu 5.7 mil (40.1 Ohm), B.Cu 6.5 mil (39.9 Ohm)
+(rule "S40 F.Cu"
+	(layer "F.Cu")
+	(condition "A.NetClass == 'S40'")
+	(constraint track_width (opt 0.1651mm)))
+(rule "S40 In2.Cu"
+	(layer "In2.Cu")
+	(condition "A.NetClass == 'S40'")
+	(constraint track_width (opt 0.14478mm)))
+(rule "S40 In5.Cu"
+	(layer "In5.Cu")
+	(condition "A.NetClass == 'S40'")
+	(constraint track_width (opt 0.14478mm)))
+(rule "S40 B.Cu"
+	(layer "B.Cu")
+	(condition "A.NetClass == 'S40'")
+	(constraint track_width (opt 0.1651mm)))
+
+# DIFF80: 80 Ohm differential, +-5% (DDR D80)
+#   F.Cu 4.2/3.5 mil (80.3 Ohm), In2.Cu 3.5/3.6 mil (80.3 Ohm), In5.Cu 3.5/3.6 mil (80.3 Ohm), B.Cu 4.2/3.5 mil (80.3 Ohm)
+(rule "DIFF80 F.Cu"
+	(layer "F.Cu")
+	(condition "A.NetClass == 'DIFF80'")
+	(constraint track_width (opt 0.10668mm))
+	(constraint diff_pair_gap (opt 0.0889mm)))
+(rule "DIFF80 In2.Cu"
+	(layer "In2.Cu")
+	(condition "A.NetClass == 'DIFF80'")
+	(constraint track_width (opt 0.0889mm))
+	(constraint diff_pair_gap (opt 0.09144mm)))
+(rule "DIFF80 In5.Cu"
+	(layer "In5.Cu")
+	(condition "A.NetClass == 'DIFF80'")
+	(constraint track_width (opt 0.0889mm))
+	(constraint diff_pair_gap (opt 0.09144mm)))
+(rule "DIFF80 B.Cu"
+	(layer "B.Cu")
+	(condition "A.NetClass == 'DIFF80'")
+	(constraint track_width (opt 0.10668mm))
+	(constraint diff_pair_gap (opt 0.0889mm)))
+
+# S50: 50 Ohm single-ended, +-5%
+#   F.Cu 4.1 mil (50.2 Ohm), In2.Cu 3.5 mil (50.1 Ohm), In5.Cu 3.5 mil (50.1 Ohm), B.Cu 4.1 mil (50.2 Ohm)
+(rule "S50 F.Cu"
+	(layer "F.Cu")
+	(condition "A.NetClass == 'S50'")
+	(constraint track_width (opt 0.10414mm)))
+(rule "S50 In2.Cu"
+	(layer "In2.Cu")
+	(condition "A.NetClass == 'S50'")
+	(constraint track_width (opt 0.0889mm)))
+(rule "S50 In5.Cu"
+	(layer "In5.Cu")
+	(condition "A.NetClass == 'S50'")
+	(constraint track_width (opt 0.0889mm)))
+(rule "S50 B.Cu"
+	(layer "B.Cu")
+	(condition "A.NetClass == 'S50'")
+	(constraint track_width (opt 0.10414mm)))
+
+# DIFF85: 85 Ohm differential, +-5%
+#   F.Cu 3.6/3.5 mil (85.1 Ohm), In2.Cu 3.5/4.7 mil (85.0 Ohm), In5.Cu 3.5/4.7 mil (85.0 Ohm), B.Cu 3.6/3.5 mil (85.1 Ohm)
+(rule "DIFF85 F.Cu"
+	(layer "F.Cu")
+	(condition "A.NetClass == 'DIFF85'")
+	(constraint track_width (opt 0.09144mm))
+	(constraint diff_pair_gap (opt 0.0889mm)))
+(rule "DIFF85 In2.Cu"
+	(layer "In2.Cu")
+	(condition "A.NetClass == 'DIFF85'")
+	(constraint track_width (opt 0.0889mm))
+	(constraint diff_pair_gap (opt 0.11938mm)))
+(rule "DIFF85 In5.Cu"
+	(layer "In5.Cu")
+	(condition "A.NetClass == 'DIFF85'")
+	(constraint track_width (opt 0.0889mm))
+	(constraint diff_pair_gap (opt 0.11938mm)))
+(rule "DIFF85 B.Cu"
+	(layer "B.Cu")
+	(condition "A.NetClass == 'DIFF85'")
+	(constraint track_width (opt 0.09144mm))
+	(constraint diff_pair_gap (opt 0.0889mm)))
+
+# DIFF90: 90 Ohm differential, +-5%
+#   F.Cu 3.5/4.2 mil (89.8 Ohm), In2.Cu 3.5/6.5 mil (89.9 Ohm), In5.Cu 3.5/6.5 mil (89.9 Ohm), B.Cu 3.5/4.2 mil (89.8 Ohm)
+(rule "DIFF90 F.Cu"
+	(layer "F.Cu")
+	(condition "A.NetClass == 'DIFF90'")
+	(constraint track_width (opt 0.0889mm))
+	(constraint diff_pair_gap (opt 0.10668mm)))
+(rule "DIFF90 In2.Cu"
+	(layer "In2.Cu")
+	(condition "A.NetClass == 'DIFF90'")
+	(constraint track_width (opt 0.0889mm))
+	(constraint diff_pair_gap (opt 0.1651mm)))
+(rule "DIFF90 In5.Cu"
+	(layer "In5.Cu")
+	(condition "A.NetClass == 'DIFF90'")
+	(constraint track_width (opt 0.0889mm))
+	(constraint diff_pair_gap (opt 0.1651mm)))
+(rule "DIFF90 B.Cu"
+	(layer "B.Cu")
+	(condition "A.NetClass == 'DIFF90'")
+	(constraint track_width (opt 0.0889mm))
+	(constraint diff_pair_gap (opt 0.10668mm)))
+
+# DIFF100: 100 Ohm differential, +-5%
+#   F.Cu 3.5/8 mil (100.0 Ohm), In2.Cu 3.5/8 mil (92.6 Ohm), In5.Cu 3.5/8 mil (92.6 Ohm), B.Cu 3.5/8 mil (100.0 Ohm)
+(rule "DIFF100 F.Cu"
+	(layer "F.Cu")
+	(condition "A.NetClass == 'DIFF100'")
+	(constraint track_width (opt 0.0889mm))
+	(constraint diff_pair_gap (opt 0.2032mm)))
+(rule "DIFF100 In2.Cu"
+	(layer "In2.Cu")
+	(condition "A.NetClass == 'DIFF100'")
+	(constraint track_width (opt 0.0889mm))
+	(constraint diff_pair_gap (opt 0.2032mm)))
+(rule "DIFF100 In5.Cu"
+	(layer "In5.Cu")
+	(condition "A.NetClass == 'DIFF100'")
+	(constraint track_width (opt 0.0889mm))
+	(constraint diff_pair_gap (opt 0.2032mm)))
+(rule "DIFF100 B.Cu"
+	(layer "B.Cu")
+	(condition "A.NetClass == 'DIFF100'")
+	(constraint track_width (opt 0.0889mm))
+	(constraint diff_pair_gap (opt 0.2032mm)))

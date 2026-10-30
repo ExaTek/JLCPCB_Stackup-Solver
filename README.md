@@ -1,8 +1,8 @@
 # JLCPCB Stackup Solver
 
 Desktop tool that finds the cheapest **orderable JLCPCB stackup** for your impedances, computes
-the trace widths and gaps for every signal layer, and exports the stack with impedance profiles
-to **Altium Designer** (`.stackup`). Works offline; an optional button checks the widths with
+the trace widths and gaps for every signal layer, and exports the stack with the widths to
+**Altium Designer** (`.stackup`, Windows) or **KiCad** (project, Linux/macOS). Works offline; an optional button checks the widths with
 JLCPCB's own online Si9000 calculator. Interface in English and Russian.
 
 ![screenshot](docs/screenshot.png)
@@ -47,8 +47,11 @@ The script creates `.venv` and installs `requirements.txt` on the first run
   auto-sized (smallest manufacturable W/S, JLC minimum 3.5/3.5 mil) or fixed geometry.
 - Results grouped as *suitable / almost / unsuitable*, ranked by JLC's stackup surcharge
   (from the quote form, 5 pcs 100×100 mm); filter for stackups without surcharge.
-- Altium export: layers, dielectrics, solder mask, finish, impedance profiles `S50`, `DIFF90`, …
-  with widths on every signal layer.
+- Windows: Altium export (Layer Stack Manager → File → Load Stackup): layers, dielectrics,
+  solder mask, finish, impedance profiles `S50`, `DIFF90`, … with widths on every signal layer.
+- Linux/macOS: KiCad 7+ project — `.kicad_pcb` with the stackup, `.kicad_pro` with net classes
+  `S50`, `DIFF90`, …, `.kicad_dru` with the width and pair gap of every class on every signal layer.
+  Open it, or pull it into your board with Board Setup → Import Settings.
 - Stack database refresh from JLCPCB in Settings; mil ↔ mm; RU ↔ EN.
 
 The offline field solver matches JLC's Si9000 within ±0.3 % (see [details](docs/details.ru.md)).
@@ -59,7 +62,7 @@ The offline field solver matches JLC's Si9000 within ±0.3 % (see [details](docs
 |---|---|
 | `jlc/core` | stackup model, field solver, width search |
 | `jlc/jlcpcb` | JLCPCB online API, stack database update, Si9000 answer cache |
-| `jlc/export` | Altium `.stackup` writer |
+| `jlc/export` | Altium `.stackup` and KiCad project writers |
 | `jlc/ui` | Qt window, RU/EN texts |
 | `jlc/cli.py` | command line |
 | `data` | stack database and JLC answers shipped with the program |
@@ -95,7 +98,7 @@ jlcpcb.com.
 
 **Кратко по-русски.** Программа подбирает самый дешёвый заказываемый стек JLCPCB под нужные
 импедансы, считает ширины и зазоры на всех сигнальных слоях и сохраняет стек с профилями
-импеданса для Altium Designer. Скачайте архив для своей системы в [Releases](../../releases),
+импеданса для Altium Designer (Windows) или проект KiCad (Linux/macOS). Скачайте архив для своей системы в [Releases](../../releases),
 распакуйте и запустите — установка не нужна. Папка `data/` рядом с программой хранит базу стеков
 (обновляется в «Настройках»), настройки, кэш и журналы. Интерфейс переключается кнопкой RU/EN.
 Подробности — в [docs/details.ru.md](docs/details.ru.md).

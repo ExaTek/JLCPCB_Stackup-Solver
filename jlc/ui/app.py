@@ -27,6 +27,7 @@ from .. import paths as P
 from ..core import engine as E
 from ..core import stackup as ST
 from ..export import altium as A
+from ..export import kicad as K
 from . import i18n
 from .i18n import tr
 
@@ -36,6 +37,7 @@ LOG = logging.getLogger("jlcapp")
 MM = 0.0254
 LAYERS = [4, 6, 8, 10]
 MAX_THICK = 2.0
+EXPORT = "altium" if sys.platform == "win32" else "kicad"      # Altium Designer runs on Windows only
 PRESETS = {
     4: [("SGPS", "классика: земля и питание внутри"), ("SPGS", "зеркальный: питание под TOP"),
         ("SGGS", "две земли, питание полигонами"), ("GSSG", "EMC: земля снаружи, сигналы внутри")],
@@ -153,6 +155,8 @@ QPushButton#primary {{ background:{C['acc']}; border:none; color:white; font-wei
 QPushButton#done {{ background:{C['okbg']}; border:1px solid #2f5a3d; color:{C['oktx']}; padding:7px 16px; }}
 QPushButton#altium {{ background:#4a3a2b; border:1px solid #6e5640; color:#f1dcc2; font-weight:600; padding:7px 16px; }}
 QPushButton#altium:hover {{ background:#56432f; border-color:#a07a52; }}
+QPushButton#kicad {{ background:#2b5797; border:1px solid #3d6bb0; color:white; font-weight:600; padding:7px 16px; }}
+QPushButton#kicad:hover {{ background:#3464ab; border-color:#6f97d6; }}
 QPushButton#jlc {{ background:#0072fc; border:1px solid #0072fc; color:white; font-weight:600; padding:7px 16px; }}
 QPushButton#jlc:hover {{ background:#1a84ff; border-color:#5aa6ff; }}
 QPushButton#jlc:disabled {{ background:#1d3f6e; border-color:#1d3f6e; color:#a9c4e8; }}
@@ -1343,14 +1347,21 @@ class Main(QMainWindow):
         self._fit(w)
 
     def _actions(self, r):
-        """Altium export + JLC check under the cross-section. The check state lives in the
-        result (r["checking"], r["jlc"], r["jlc_error"]), so re-rendering keeps it."""
+        """CAD export (Altium on Windows, KiCad elsewhere) + JLC check under the cross-section.
+        The check state lives in the result (r["checking"], r["jlc"], r["jlc_error"]), so
+        re-rendering keeps it."""
         btns = QHBoxLayout()
-        b1 = QPushButton("Сохранить для Altium…")
-        b1.setObjectName("altium")
-        b1.setToolTip("сохранить стек (слои, маска, покрытие, профили импеданса S50 / DIFF90 с ширинами\n"
-                      "на всех сигнальных слоях) в файл .stackup\n"
-                      "Altium: Layer Stack Manager → File → Load Stackup")
+        if EXPORT == "kicad":
+            b1 = QPushButton("Сохранить для KiCad…")
+            b1.setToolTip("сохранить проект KiCad: плата со стеком (слои, диэлектрики, маска, покрытие),\n"
+                          "классы цепей S50 / DIFF90 и правила с шириной и зазором на каждом сигнальном слое\n"
+                          "KiCad 7+: открыть проект или в своей плате Board Setup → Import Settings")
+        else:
+            b1 = QPushButton("Сохранить для Altium…")
+            b1.setToolTip("сохранить стек (слои, маска, покрытие, профили импеданса S50 / DIFF90 с ширинами\n"
+                          "на всех сигнальных слоях) в файл .stackup\n"
+                          "Altium: Layer Stack Manager → File → Load Stackup")
+        b1.setObjectName(EXPORT)
         b1.clicked.connect(lambda: self._export(r))
         tip = ("пересчитать все найденные ширины онлайн-калькулятором самого JLC (Si9000)\n"
                "и показать его импеданс рядом с нашим расчётом (режим «Подробно»)")
@@ -1460,23 +1471,27 @@ class Main(QMainWindow):
 
     def _export(self, r):
         spec = self.spec_used
-        fname = f"{r['name']}_{''.join(spec['plan'])}.stackup"
-        path, _ = QFileDialog.getSaveFileName(self, tr("Сохранить стек для Altium"),
+        kicad = EXPORT == "kicad"
+        fmt, ext = (K, ".kicad_pcb") if kicad else (A, ".stackup")
+        fname = f"{r['name']}_{''.join(spec['plan'])}{ext}"
+        path, _ = QFileDialog.getSaveFileName(self, tr("Сохранить стек для KiCad" if kicad else "Сохранить стек для Altium"),
                                               os.path.join(self.st.get("lastdir") or os.path.expanduser("~"), fname),
-                                              "Altium Layer Stack (*.stackup)")
+                                              f"{'KiCad board' if kicad else 'Altium Layer Stack'} (*{ext})")
         if not path:
             return
+        if not path.endswith(ext):                      # Linux dialogs do not add it
+            path += ext
         LOG.info("export %s -> %s", r["name"], path)
         try:
             QApplication.setOverrideCursor(Qt.WaitCursor)   # widths for uncovered layers take a few seconds
             try:
-                text = A.build(self._stack(r), spec["plan"], r, spec["reqs"], names=spec["names"],
-                               finish=spec["finish"], mask=spec["mask"], lim=spec["lim"])
+                out = fmt.build(self._stack(r), spec["plan"], r, spec["reqs"], names=spec["names"],
+                                finish=spec["finish"], mask=spec["mask"], lim=spec["lim"])
             finally:
                 QApplication.restoreOverrideCursor()
-            A.save(path, text)
+            fmt.save(path, out)
             self.st["lastdir"] = os.path.dirname(path)
-            self._status(f"сохранено: {path}")
+            self._status(f"сохранено: {path}" + (" (+ .kicad_pro, .kicad_dru)" if kicad else ""))
         except Exception as e:
             LOG.exception("export failed")
             QMessageBox.warning(self, tr("Экспорт"), f"{e.__class__.__name__}: {e}")
@@ -1630,8 +1645,9 @@ def init_logging(debug):
 
 def selftest():
     """--selftest: what a packaged build must manage without a screen: worker processes,
-    a search, the result card in both languages and an Altium export. The report goes to
-    selftest.log in the user folder (a windowed .exe has no console); exit code 0 = ok."""
+    a search, the result card in both languages, the Altium and the KiCad export (written
+    to data/selftest/, CI opens the KiCad one with KiCad). The report goes to
+    data/selftest.log (a windowed .exe has no console); exit code 0 = ok."""
     lines, t0 = [], time.time()
     try:
         w = Main()
@@ -1642,13 +1658,22 @@ def selftest():
         w._on_done(res, spec)
         lines.append(f"search: {len(res)} stacks, shown {len(w.results)}, {time.time() - t0:.1f}s")
         r = w.cur
-        text = A.build(w._stack(r), spec["plan"], r, spec["reqs"], names=spec["names"], finish=spec["finish"],
-                       mask=spec["mask"], lim=spec["lim"])
+        args = (w._stack(r), spec["plan"], r, spec["reqs"])
+        kw = dict(names=spec["names"], finish=spec["finish"], mask=spec["mask"], lim=spec["lim"])
+        out = P.data("selftest")
+        os.makedirs(out, exist_ok=True)
+        text = A.build(*args, **kw)
+        A.save(os.path.join(out, "selftest.stackup"), text)
         n = sum(1 for kv in text.split("|") if kv.startswith("TRACEIMPEDANCE_V8_") and "LAYERID=" in kv)
-        lines.append(f"export: {r['name']}, {len(text)} chars, {n} trace impedances")
+        lines.append(f"altium: {r['name']}, {len(text)} chars, {n} trace impedances")
+        files = K.build(*args, **kw)
+        K.save(os.path.join(out, "selftest.kicad_pcb"), files)
+        nk = files[".kicad_dru"].count("(rule ")
+        lines.append(f"kicad: {files['.kicad_pcb'].count('(type \"copper\")')} copper layers, "
+                     f"{len(files['.kicad_pro']['net_settings']['classes']) - 1} net classes, {nk} rules")
         w._lang_changed("en")
         lines.append(f"english: {w.lbl_status.text()}")
-        ok = bool(res) and r is not None and n >= len(spec["reqs"])
+        ok = bool(res) and r is not None and n >= len(spec["reqs"]) and nk == n
     except Exception:
         LOG.exception("selftest failed")
         import traceback

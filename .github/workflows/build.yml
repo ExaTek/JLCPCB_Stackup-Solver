@@ -51,8 +51,34 @@ jobs:
           "${{ matrix.exe }}" --selftest || code=$?
           d=dist/JLCPCB-Stackup-Solver/data
           cat "$d/selftest.log"
-          rm -rf "$d/selftest.log" "$d/settings.json" "$d/cache" "$d/logs"
+          cp -r "$d/selftest" "$RUNNER_TEMP/selftest"
+          rm -rf "$d/selftest.log" "$d/selftest" "$d/settings.json" "$d/cache" "$d/logs"
           exit $code
+      - name: Open the KiCad export with KiCad itself
+        if: runner.os == 'Linux'
+        run: |
+          sudo add-apt-repository -y ppa:kicad/kicad-9.0-releases > /dev/null
+          sudo apt-get install -y --no-install-recommends kicad > /dev/null
+          kicad-cli version
+          cd "$RUNNER_TEMP/selftest"
+          cp -r . ../broken && printf '(version 1)\n(rule "bad" (bogus))\n' > ../broken/selftest.kicad_dru
+          echo "== board as KiCad saves it (parsed, upgraded):"
+          kicad-cli pcb upgrade --force selftest.kicad_pcb
+          sed -n '/(layers/,/^\t)/p;/(stackup/,/copper_finish/p' selftest.kicad_pcb
+          echo "== DRC with our rules:"
+          kicad-cli pcb drc --severity-all --format json -o drc.json selftest.kicad_pcb 2>&1 | tee drc.log
+          echo "== DRC with a broken rules file (for comparison):"
+          kicad-cli pcb drc --severity-all --format json -o ../broken/drc.json ../broken/selftest.kicad_pcb 2>&1 | tee ../broken/drc.log
+          python3 - <<'EOF'
+          import json
+          ours, bad = (json.load(open(p)) for p in ("drc.json", "../broken/drc.json"))
+          def kinds(d):
+              return sorted({v["type"] for v in d.get("violations", [])})
+          print("our rules:", kinds(ours))
+          print("broken rules:", kinds(bad))
+          assert kinds(ours) != kinds(bad) or "rule" not in " ".join(kinds(bad)), "rule errors look the same"
+          assert not any("rule" in k for k in kinds(ours)), "KiCad reports a problem with our rules"
+          EOF
       - name: Package
         shell: bash
         run: |
