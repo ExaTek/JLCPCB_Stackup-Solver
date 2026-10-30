@@ -19,14 +19,6 @@ Nothing to install, no Python needed.
 
 > "Source code (zip / tar.gz)" on the [Releases](../../releases) page is added by GitHub
 > automatically: that is the source, not the program.
-
-| система | скачать (готовая программа) |
-|---|---|
-| **Windows** | **[JLCPCB-Stackup-Solver-windows-x64.zip](https://github.com/ExaTek/JLCPCB_Stackup-Solver/releases/latest/download/JLCPCB-Stackup-Solver-windows-x64.zip)** — распаковать, запустить `JLCPCB-Stackup-Solver.exe` |
-| **Linux** | **[JLCPCB-Stackup-Solver-linux-x64.tar.gz](https://github.com/ExaTek/JLCPCB_Stackup-Solver/releases/latest/download/JLCPCB-Stackup-Solver-linux-x64.tar.gz)** — распаковать, запустить `./JLCPCB-Stackup-Solver` |
-
-«Source code» на странице релиза GitHub добавляет сам — это исходники, не программа.
-
 ```
 JLCPCB-Stackup-Solver/
 ├── JLCPCB-Stackup-Solver(.exe)   the program
@@ -108,7 +100,7 @@ jlcpcb.com.
 
 **Кратко по-русски.** Программа подбирает самый дешёвый заказываемый стек JLCPCB под нужные
 импедансы, считает ширины и зазоры на всех сигнальных слоях и сохраняет стек с профилями
-импеданса для Altium Designer (Windows) или проект KiCad (Linux/macOS). Скачайте архив для своей системы в [Releases](../../releases),
+импеданса для Altium Designer (Windows) или проект KiCad (Linux/macOS). Скачайте готовую программу по ссылке из таблицы [Download and run](#download-and-run) (не «Source code»),
 распакуйте и запустите — установка не нужна. Папка `data/` рядом с программой хранит базу стеков
 (обновляется в «Настройках»), настройки, кэш и журналы. Интерфейс переключается кнопкой RU/EN.
 Подробности — в [docs/details.ru.md](docs/details.ru.md).
