@@ -4,6 +4,7 @@ Desktop tool that finds the cheapest **orderable JLCPCB stackup** for your imped
 the trace widths and gaps for every signal layer, and exports the stack with the widths to
 **Altium Designer** (`.stackup`, Windows) or **KiCad** (project, Linux/macOS). Works offline; an optional button checks the widths with
 JLCPCB's own online Si9000 calculator. Interface in English and Russian.
+Besides JLCPCB it knows the typical stackups of **Rezonit** (Russian PCB factory): one switch in the window.
 
 ![screenshot](docs/screenshot.png)
 
@@ -25,6 +26,7 @@ JLCPCB-Stackup-Solver/
 ├── lib/                          Python, Qt, numpy/scipy
 └── data/                         everything that changes
     ├── jlcpcb_stackups.zip       stack database: Settings → Update stack database
+    ├── rezonit_stackups.zip      Rezonit's typical builds (same format, same button)
     ├── jlc_calc_cache.json       answers of JLC's online calculator
     └── settings.json, cache/, logs/   created by the program
 ```
@@ -55,6 +57,12 @@ The script creates `.venv` and installs `requirements.txt` on the first run
   `S50`, `DIFF90`, …, `.kicad_dru` with the width and pair gap of every class on every signal layer.
   Open it, or pull it into your board with Board Setup → Import Settings.
 - Stack database refresh from JLCPCB in Settings; mil ↔ mm; RU ↔ EN.
+- Factory switch **JLCPCB / Rezonit**. Rezonit: its 29 typical builds from rezonit.ru (4/6/8 layers,
+  foil 18 or 35 µm, FR-4 TG150/TG170, 1.0/1.5/2.0 mm) with Rezonit's Dk of cores, prepregs and mask;
+  default minimum W/S is Rezonit's "advanced" class (0.10 mm for 18 µm, 0.15 mm for 35 µm foil).
+  Rezonit does not publish plating, etch and mask thickness, so those follow JLC's model; with it the
+  solver reproduces Rezonit's own 50 Ω / 100 Ω table within ±1.2 %. Inner layers are not verified
+  against Rezonit (no published data).
 
 The offline field solver matches JLC's Si9000 within ±0.3 % (see [details](docs/details.ru.md)).
 
@@ -68,7 +76,7 @@ The offline field solver matches JLC's Si9000 within ±0.3 % (see [details](docs
 | `jlc/export` | Altium `.stackup` and KiCad project writers |
 | `jlc/ui` | Qt window, RU/EN texts |
 | `jlc/cli.py` | command line |
-| `data` | stack database and JLC answers shipped with the program |
+| `data` | stack databases (JLCPCB, Rezonit) and JLC answers shipped with the program |
 | `packaging` | PyInstaller spec |
 | `docs` | details (in Russian), screenshot, example export |
 
@@ -95,9 +103,9 @@ GitHub Actions builds and self-tests both versions on every push; a `v*` tag pub
 
 ## Notes
 
-Not affiliated with or endorsed by JLCPCB. The stack database is public data from JLCPCB's
-impedance calculator and quote form; prices and stackups change, so check the final order on
-jlcpcb.com.
+Not affiliated with or endorsed by JLCPCB or Rezonit. The stack databases are public data from
+JLCPCB's impedance calculator and quote form and from rezonit.ru; prices and stackups change, so
+check the final order with the factory.
 
 ---
 
@@ -106,6 +114,8 @@ jlcpcb.com.
 импеданса для Altium Designer (Windows) или проект KiCad (Linux/macOS). Скачайте готовую программу по ссылке из таблицы [Download and run](#download-and-run) (не «Source code»),
 распакуйте и запустите — установка не нужна. Папка `data/` рядом с программой хранит базу стеков
 (обновляется в «Настройках»), настройки, кэш и журналы. Интерфейс переключается кнопкой RU/EN.
+Переключатель «Завод» вверху формы даёт вместо JLCPCB типовые сборки **Резонита** (4/6/8 слоёв,
+фольга 18/35 мкм, TG150/TG170) с их Dk и минимальными ширинами.
 Подробности — в [docs/details.ru.md](docs/details.ru.md).
 
 ## License
