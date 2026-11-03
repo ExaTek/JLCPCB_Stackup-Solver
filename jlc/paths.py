@@ -3,6 +3,7 @@
 data/  next to the program (the folder with the .exe, or the repository root when run
        from source) holds everything that changes:
          jlcpcb_stackups.zip   stack database (Settings > Update stack database)
+         rezonit_stackups.zip  Rezonit's typical builds, same format (`python -m jlc update --fab rezonit`)
          jlc_calc_cache.json   answers of JLC's Si9000 (grows with every online check)
          settings.json         the form
          cache/                computed widths, UI images
@@ -21,6 +22,7 @@ APP_DIR = (os.path.dirname(os.path.abspath(sys.executable)) if FROZEN
 SHIPPED = os.path.join(APP_DIR, "data")
 RESOURCES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "resources")
 DB = "jlcpcb_stackups.zip"
+FABS = {"jlcpcb": DB, "rezonit": "rezonit_stackups.zip"}     # stack database of each factory
 
 
 def _writable(d):

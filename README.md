@@ -64,6 +64,7 @@ The offline field solver matches JLC's Si9000 within ±0.3 % (see [details](docs
 |---|---|
 | `jlc/core` | stackup model, field solver, width search |
 | `jlc/jlcpcb` | JLCPCB online API, stack database update, Si9000 answer cache |
+| `jlc/rezonit` | Rezonit's typical builds from rezonit.ru into the same database format |
 | `jlc/export` | Altium `.stackup` and KiCad project writers |
 | `jlc/ui` | Qt window, RU/EN texts |
 | `jlc/cli.py` | command line |
@@ -77,6 +78,8 @@ The offline field solver matches JLC's Si9000 within ±0.3 % (see [details](docs
 python -m jlc list   --layers 8 --thick 1.6 [--inner 0.5] [--free]
 python -m jlc widths JLC081611-1080B [--se 40,50] [--diff 80,90,100] [--online]
 python -m jlc update                 # refresh data/jlcpcb_stackups.zip (~7 min)
+python -m jlc list --fab rezonit --layers 6   # Rezonit's typical builds (data/rezonit_stackups.zip)
+python -m jlc update --fab rezonit   # re-read them from rezonit.ru (seconds)
 python -m jlc --help
 ```
 

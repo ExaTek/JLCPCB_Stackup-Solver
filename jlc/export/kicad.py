@@ -42,9 +42,10 @@ def cu_layer(k, n):
     return "F.Cu" if k == 0 else ("B.Cu" if k == n - 1 else f"In{k}.Cu")
 
 
-def build(stack, plan, result, reqs, names=None, finish="ENIG", mask=(1.0, 0.6, 3.8), outer_t=1.6, df=0.02,
+def build(stack, plan, result, reqs, names=None, finish="ENIG", mask=None, outer_t=None, df=0.02,
           lim=None):
     """Same inputs as altium.build(); returns {".kicad_pcb": text, ".kicad_pro": text, ".kicad_dru": text}."""
+    mask, outer_t = mask or stack.mask(), outer_t or stack.outer_t()
     names = names or default_names(plan)
     cu_names = stack.layer_names()
     n = len(cu_names)

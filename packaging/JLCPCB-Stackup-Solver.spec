@@ -36,5 +36,5 @@ COLLECT(exe, a.binaries, a.datas, name=NAME, upx=False)
 # the data folder lives next to the program, not inside it: it is updated at run time
 out = os.path.join(DISTPATH, NAME, "data")
 os.makedirs(out, exist_ok=True)
-for n in ("jlcpcb_stackups.zip", "jlc_calc_cache.json"):
+for n in ("jlcpcb_stackups.zip", "rezonit_stackups.zip", "jlc_calc_cache.json"):
     shutil.copy2(os.path.join(ROOT, "data", n), out)

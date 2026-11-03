@@ -33,17 +33,32 @@ def translate(s):
     return s.replace("（", "(").replace("）", ")")
 
 
-_DB, _ORDER = None, None
+_DB, _ORDER, _FAB = None, None, "jlcpcb"
 _db_lock = threading.Lock()
 
 
+def use(fab):
+    """Switch the stack database: "jlcpcb" (default) or "rezonit" (paths.FABS)."""
+    global _FAB
+    if fab not in paths.FABS:
+        raise KeyError(fab)
+    if fab != _FAB:
+        _FAB = fab
+        reload()
+
+
+def fab():
+    return _FAB
+
+
 def db():
-    """The stack database jlcpcb_stackups.zip (see jlc.jlcpcb.update):
+    """The stack database of the current factory, jlcpcb_stackups.zip (see jlc.jlcpcb.update)
+    or rezonit_stackups.zip (jlc.rezonit.update):
     {"templates": [...], "order_options": [...], "configs": {...}, "meta": {...}}."""
     global _DB
     with _db_lock:
         if _DB is None:
-            with zipfile.ZipFile(paths.shipped(paths.DB)) as z:
+            with zipfile.ZipFile(paths.shipped(paths.FABS[_FAB])) as z:
                 _DB = {n[:-5]: json.loads(z.read(n).decode("utf-8")) for n in z.namelist() if n.endswith(".json")}
         return _DB
 
@@ -107,7 +122,7 @@ class Stack:
         self.custom = "自定义" in self.name
         self.default_build = (t.get("receptionDisplayName") or "").startswith("无要求")
         m = re.search(r"(\d+(?:\.\d+)?)\s*(?:mm)?\s*±", self.display)
-        self.finished = float(m.group(1)) if m else None
+        self.finished = t.get("actualThickness") or (float(m.group(1)) if m else None)
         self.cfg = cfg
         self.items = []
         for y in t["layers"]:
@@ -199,7 +214,11 @@ class Stack:
     def mask(self):
         """JLC solder mask model for the outer copper: (C1 over substrate, C2 over trace, Er)."""
         cv = _pick(self.cfg["coverlay"], self.outer_oz, 1)
-        return cv["coatingAboveSubstrate"], cv["coatingAboveTrace"], 3.8
+        return cv["coatingAboveSubstrate"], cv["coatingAboveTrace"], cv.get("coatingDielectricConstant", 3.8)
+
+    def outer_t(self):
+        """Plated outer copper thickness (mil) of the copper model."""
+        return _pick(self.cfg["copper_trace_width"], self.outer_oz, 1)["traceCopperThickness"]
 
     def geometry(self, layer, up=None, down=None, diff=False, mask=None):
         """(model, params) for a trace on `layer` between reference planes
@@ -214,7 +233,8 @@ class Stack:
             ct = _pick(self.cfg["copper_trace_width"], self.outer_oz, 1)
             cv = _pick(self.cfg["coverlay"], self.outer_oz, 1)
             p = {"H1": h, "Er1": er, "T1": ct["traceCopperThickness"], "d": ct["traceWidthDelta"],
-                 "C1": cv["coatingAboveSubstrate"], "C2": cv["coatingAboveTrace"], "CEr": 3.8}
+                 "C1": cv["coatingAboveSubstrate"], "C2": cv["coatingAboveTrace"],
+                 "CEr": cv.get("coatingDielectricConstant", 3.8)}
             if diff:
                 p["C3"] = cv["coatingBetweenTraces"]
             if mask:

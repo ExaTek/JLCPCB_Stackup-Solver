@@ -6,8 +6,12 @@
   python -m jlc z        JLC081611-1080G --layer L3 --w 5 [--s 4.2] [--refs L2,L4] [--online]
   python -m jlc rank     --layers 8 --thick 1.6,2.0 [--inner 0.5,1] [--se 40,50] [--diff 80,90,100]
   python -m jlc update                      refresh the stack database from JLCPCB (~7 min)
+  python -m jlc update   --fab rezonit      Rezonit's typical builds from rezonit.ru (seconds)
   python -m jlc prices   [--layers 4,6,8,10]   only re-price the stackup surcharges (~2 min)
   python -m jlc validate [--new 200]        offline solver vs JLC's Si9000 (cached answers [+ new online])
+
+list/rank/show/widths/z/update take --fab jlcpcb (default) or --fab rezonit: Rezonit's typical
+builds (4/6/8 layers, foil 18 or 35 um = --outer 1 or 1.5, TG150/TG170).
 """
 import argparse
 import concurrent.futures as cf
@@ -17,6 +21,7 @@ import statistics
 import sys
 import time
 
+from . import paths as P
 from .core import design as D
 from .core import stackup as S
 from .core.solver import impedance
@@ -52,8 +57,14 @@ def _progress(stage, done, total):
 
 
 def cmd_update(a):
-    from .jlcpcb import update as U
     t0 = time.time()
+    if a.fab == "rezonit":
+        from .rezonit import update as R
+        m = R.refresh(_progress)
+        print(f"{m['templates']} typical builds saved in {time.time() - t0:.0f}s; Rezonit's own 50/100 Ohm "
+              f"widths through our solver: worst {100 * m['check_max_dev']:.1f}%")
+        return
+    from .jlcpcb import update as U
     m = U.refresh(_progress)
     print(f"{m['templates']} orderable stackups, {m['options']} order options saved in {time.time() - t0:.0f}s")
 
@@ -300,13 +311,15 @@ def main():
     ap = argparse.ArgumentParser(prog="python -m jlc", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("update")
+    fab = argparse.ArgumentParser(add_help=False)
+    fab.add_argument("--fab", choices=sorted(P.FABS), default="jlcpcb", help="stack database (factory)")
+    sub.add_parser("update", parents=[fab])
     sub.add_parser("prices").add_argument("--layers", default="4,6,8,10")
     p = sub.add_parser("validate")
     p.add_argument("--new", type=int, default=0, help="add this many fresh random JLC solves first (online)")
     p.add_argument("--fine", type=float, default=1.5)
     for name in ("list", "rank"):
-        p = sub.add_parser(name)
+        p = sub.add_parser(name, parents=[fab])
         p.add_argument("--layers", type=int, default=8)
         p.add_argument("--thick", default="")
         p.add_argument("--inner", default="")
@@ -326,15 +339,15 @@ def main():
     r.add_argument("--pmax", type=float, default=14.0, help="widest comfortable diff pitch W+S")
     r.add_argument("--pmax-ok", type=float, default=18.0)
     r.add_argument("--top", type=int, default=15)
-    p = sub.add_parser("show")
+    p = sub.add_parser("show", parents=[fab])
     p.add_argument("name")
-    p = sub.add_parser("widths")
+    p = sub.add_parser("widths", parents=[fab])
     p.add_argument("name")
     p.add_argument("--layers", dest="layers_sel", default="")
     p.add_argument("--se", default="40,50")
     p.add_argument("--diff", default="80,85,90,100")
     p.add_argument("--online", action="store_true")
-    p = sub.add_parser("z")
+    p = sub.add_parser("z", parents=[fab])
     p.add_argument("name")
     p.add_argument("--layer", required=True)
     p.add_argument("--w", type=float, required=True)
@@ -342,6 +355,7 @@ def main():
     p.add_argument("--refs", default="")
     p.add_argument("--online", action="store_true")
     a = ap.parse_args()
+    S.use(getattr(a, "fab", "jlcpcb"))
     globals()["cmd_" + a.cmd](a)
 
 

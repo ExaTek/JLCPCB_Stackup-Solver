@@ -37,6 +37,9 @@ LOG = logging.getLogger("jlcapp")
 MM = 0.0254
 LAYERS = [4, 6, 8, 10]
 MAX_THICK = 2.0
+FABS = [("jlcpcb", "JLCPCB", "заказываемые стеки JLCPCB, доплаты по форме заказа"),
+        ("rezonit", "Резонит", "типовые сборки Резонита: 4/6/8 слоёв, фольга 18 или 35 мкм, TG150/TG170")]
+FOIL = {1.0: 18, 1.5: 35}               # Rezonit: plated outer copper (oz) -> base foil on all layers (um)
 EXPORT = "altium" if sys.platform == "win32" else "kicad"      # Altium Designer runs on Windows only
 PRESETS = {
     4: [("SGPS", "классика: земля и питание внутри"), ("SPGS", "зеркальный: питание под TOP"),
@@ -83,7 +86,7 @@ def ddr_example():
 
 DEFAULT = {"layers": 8, "outer": 1.0, "thick": [1.6], "inner": [0.5, 1.0], "nofee": False, "plan": "SGSPPSGS",
            "names": {}, "reqs": std3(), "lim": {"wmin": 3.5, "wmax": 8.0, "smin": 3.5, "smax": 8.0},
-           "finish": "ENIG", "mask": None, "mode": "compact", "lastdir": "", "unit": "mil"}
+           "finish": "ENIG", "mask": None, "mode": "compact", "lastdir": "", "unit": "mil", "fab": "jlcpcb"}
 
 NOTES = [(r"fixed geometry", "фикс."), (r"needs ([\d.]+) < min width", r"нужно W=\1 < мин."),
          (r"needs ([\d.]+) > max width", r"нужно W=\1 > макс."), (r"needs W ([\d.]+) > max width", r"нужно W=\1 > макс."),
@@ -441,6 +444,7 @@ class Main(QMainWindow):
         scr = QApplication.primaryScreen().availableGeometry()
         self.resize(min(1840, scr.width()), min(1040, scr.height() - 40))
         self.st = self._load()
+        ST.use(self.st["fab"])
         self.meta = self._meta()
         self.pool = None
         self.results, self.all_results, self.spec_used, self.cur = [], [], None, None
@@ -550,6 +554,8 @@ class Main(QMainWindow):
             pass
         st.pop("hide_bad", None)                # replaced by the result-group buttons
         st["layers"] = st["layers"] if st["layers"] in LAYERS else 8
+        if st["fab"] not in P.FABS or not os.path.exists(P.shipped(P.FABS[st["fab"]])):
+            st["fab"] = "jlcpcb"
         for r in st["reqs"]:
             for k, v in req("x", "se", 50).items():
                 r.setdefault(k, v)
@@ -597,7 +603,7 @@ class Main(QMainWindow):
         self.mask_card = Card("Маска и покрытие", collapsible=True, collapsed=True,
                               tip="параметры паяльной маски и финишного покрытия")
         v.addWidget(self.mask_card)
-        self.set_card = Card("Настройки", collapsible=True, collapsed=True, tip="база стеков JLCPCB и папка данных")
+        self.set_card = Card("Настройки", collapsible=True, collapsed=True, tip="база стеков и папка данных")
         v.addWidget(self.set_card)
         v.addStretch()
         self._render_board()
@@ -620,7 +626,8 @@ class Main(QMainWindow):
         foot.setContentsMargins(12, 0, 12, 0)
         self.btn_go = QPushButton("Подобрать стек")
         self.btn_go.setObjectName("primary")
-        self.btn_go.setToolTip("перебрать все заказываемые стеки JLC с этими параметрами и найти самые дешёвые подходящие")
+        self.btn_go.setToolTip("перебрать все типовые сборки Резонита с этими параметрами и найти подходящие" if self.rz
+                               else "перебрать все заказываемые стеки JLC с этими параметрами и найти самые дешёвые подходящие")
         self.btn_go.clicked.connect(self._search)
         foot.addWidget(self.btn_go)
         self.prog = QProgressBar()
@@ -661,11 +668,22 @@ class Main(QMainWindow):
         self._clear(bl)
         L = self.st["layers"]
         m = self.meta[L]
-        lay = Pills(LAYERS, str, [L], single=True, tips={x: f"{x} медных слоёв" for x in LAYERS})
+        fab = Pills([f for f, _, _ in FABS], {f: n for f, n, _ in FABS}.get, [self.st["fab"]], single=True,
+                    tips={f: t for f, _, t in FABS})
+        fab.changed.connect(self._fab_changed)
+        self._row(bl, "Завод", fab, "чьи стеки перебирать")
+        layers = [x for x in LAYERS if x in self.meta]
+        lay = Pills(layers, str, [L], single=True, tips={x: f"{x} медных слоёв" for x in layers})
         lay.changed.connect(self._layers_changed)
         self._row(bl, "Слоёв", lay)
         if self.st["outer"] not in m["outer"]:
             self.st["outer"] = m["outer"][0]
+        if self.rz:
+            foil = Pills(m["outer"], lambda x: f"{FOIL[x]} мкм", [self.st["outer"]], single=True,
+                         tips={x: f"фольга {FOIL[x]} мкм на всех слоях; снаружи после металлизации ≈{x:g} oz"
+                               for x in m["outer"]})
+            foil.changed.connect(self._outer_changed)
+            self._row(bl, "Фольга", foil, "базовая фольга Резонита — одна на все слои")
         cu = QWidget()
         cu.setObjectName("clear")
         ch = QHBoxLayout(cu)
@@ -684,7 +702,10 @@ class Main(QMainWindow):
         ch.addWidget(lab)
         ch.addWidget(inn)
         ch.addStretch()
-        self._row(bl, "Медь наружная", cu, "наружная медь — одно значение; внутренняя — одно или несколько")
+        if self.rz:
+            cu.hide()
+        else:
+            self._row(bl, "Медь наружная", cu, "наружная медь — одно значение; внутренняя — одно или несколько")
         th = Pills(m["thickness"], lambda x: f"{x:.1f}", self.st["thick"], lo=1, hi=2,
                    tips={x: f"толщина платы {x:.1f} мм — одна или две сразу" for x in m["thickness"]})
         self.st["thick"] = sorted(th.order)
@@ -695,6 +716,7 @@ class Main(QMainWindow):
         nf.setToolTip("скрыть стеки, за выбор которых JLC берёт доплату (обычно без доплаты только стандартный стек);\n"
                       "сразу применяется и к уже найденным стекам справа")
         nf.toggled.connect(self._set_nofee)
+        nf.setVisible(not self.rz)               # Rezonit's typical builds have no surcharge
         sw = Switch(self.st["unit"])
         sw.toggled.connect(self._unit_changed)
         h = QHBoxLayout()
@@ -718,13 +740,63 @@ class Main(QMainWindow):
         self.st["layers"] = L
         self.st["plan"] = PRESETS[L][0][0]
         self.st["names"] = {}
-        self.st["thick"] = [t for t in self.st["thick"] if t in self.meta[L]["thickness"]] or [1.6]
+        self.st["thick"] = self._thick_ok(L)
         self._render_board()
         self._render_plan()
+
+    def _thick_ok(self, L):
+        """Chosen thicknesses this layer count offers, else the one closest to 1.6 mm."""
+        th = self.meta[L]["thickness"]
+        return [t for t in self.st["thick"] if t in th] or [min(th, key=lambda t: abs(t - 1.6))]
+
+    @property
+    def rz(self):
+        return self.st["fab"] == "rezonit"
+
+    def _fab_min(self):
+        """Factory minimum W and S in mil: JLC 3.5/3.5; Rezonit by foil, "advanced" class."""
+        if not self.rz:
+            return 3.5, 3.5
+        m = ST.db()["meta"]["min_mm"]
+        foil = str(FOIL[self.st["outer"]])
+        return round(m["trace"][foil][1] / MM, 2), round(m["gap"][foil][1] / MM, 2)
+
+    def _set_fab_min(self):
+        lim = self.st["lim"]
+        lim["wmin"], lim["smin"] = self._fab_min()
+        lim["wmax"], lim["smax"] = max(lim["wmax"], lim["wmin"] + 2), max(lim["smax"], lim["smin"] + 2)
+
+    def _fab_changed(self, v):
+        if v[0] == self.st["fab"]:
+            return
+        if getattr(self, "busy", False):
+            self._status("дождитесь конца подбора")
+            self._render_board()
+            return
+        LOG.info("factory -> %s", v[0])
+        self.st["fab"] = v[0]
+        ST.use(v[0])
+        self.meta = self._meta()
+        L = self.st["layers"]
+        if L not in self.meta:
+            L = self.st["layers"] = min(self.meta, key=lambda x: abs(x - L))
+            self.st["plan"], self.st["names"] = PRESETS[L][0][0], {}
+        m = self.meta[L]
+        self.st["outer"] = self.st["outer"] if self.st["outer"] in m["outer"] else m["outer"][0]
+        self.st["inner"] = [x for x in self.st["inner"] if x in m["inner"]] or m["inner"][:1]
+        self.st["thick"] = self._thick_ok(L)
+        self.st["mask"] = None
+        self._set_fab_min()
+        self.results, self.all_results, self.spec_used, self.cur = [], [], None, None
+        self._build()
+        self._status("стеки Резонита: типовые сборки с rezonit.ru" if self.rz else "стеки JLCPCB")
 
     def _outer_changed(self, v):
         self.st["outer"] = v[0]
         self.st["mask"] = None
+        if self.rz:
+            self._set_fab_min()
+            self._render_lim()
         self._render_mask()
 
     def _unit_changed(self, unit):
@@ -941,7 +1013,13 @@ class Main(QMainWindow):
             gl.addWidget(QLabel(f"{lab}, {self.uname()}"), i // 2, (i % 2) * 2)
             gl.addWidget(s, i // 2, (i % 2) * 2 + 1)
         bl.addLayout(gl)
-        n = QLabel("Минимум JLC для многослойных — 3.5/3.5 mil (0.09 мм); 3 mil допустимо только в фан-ауте BGA.")
+        if self.rz:
+            foil = FOIL[self.st["outer"]]
+            t = ST.db()["meta"]["min_mm"]["trace"][str(foil)]
+            n = QLabel(f"Минимум Резонита для фольги {foil} мкм: {t[0]:g} мм базовый, {t[1]:g} мм продвинутый "
+                       f"(цена ×1.5), {t[2]:g} мм предельный (цена по запросу). По умолчанию — продвинутый.")
+        else:
+            n = QLabel("Минимум JLC для многослойных — 3.5/3.5 mil (0.09 мм); 3 mil допустимо только в фан-ауте BGA.")
         n.setObjectName("mute")
         n.setWordWrap(True)
         bl.addWidget(n)
@@ -949,7 +1027,7 @@ class Main(QMainWindow):
 
     def _jlc_mask(self):
         cv = ST._pick(ST.load_configs()["coverlay"], self.st["outer"], 1)
-        return [cv["coatingAboveSubstrate"], cv["coatingAboveTrace"], 3.8]
+        return [cv["coatingAboveSubstrate"], cv["coatingAboveTrace"], cv.get("coatingDielectricConstant", 3.8)]
 
     def _render_mask(self):
         bl = self.mask_card.bl
@@ -979,7 +1057,9 @@ class Main(QMainWindow):
         gm.addWidget(QLabel("покрытие"), 3, 0)
         gm.addWidget(fin, 3, 1)
         bl.addLayout(gm)
-        n = QLabel("По умолчанию — модель маски JLC. Маска учитывается в расчёте наружных слоёв и в файле Altium.")
+        n = QLabel("По умолчанию — толщина маски как у JLC (Резонит её не публикует), Dk 3.5 по данным Резонита. "
+                   "Маска учитывается в расчёте наружных слоёв и в файле Altium." if self.rz else
+                   "По умолчанию — модель маски JLC. Маска учитывается в расчёте наружных слоёв и в файле Altium.")
         n.setObjectName("mute")
         n.setWordWrap(True)
         bl.addWidget(n)
@@ -987,14 +1067,16 @@ class Main(QMainWindow):
 
     # settings: stack database ----------------------------
     DB_STAGES = {"options": "варианты заказа", "templates": "шаблоны стеков", "configs": "модель JLC",
-                 "prices": "доплаты"}
+                 "prices": "доплаты", "rezonit.ru": "rezonit.ru"}
 
     def _render_settings(self):
         bl = self.set_card.bl
         self._clear(bl)
         h = QHBoxLayout()
         self.btn_db = QPushButton("Обновить базу стеков")
-        self.btn_db.setToolTip("скачать с JLCPCB актуальные стеки, варианты формы заказа и доплаты:\n"
+        self.btn_db.setToolTip("перечитать с rezonit.ru типовые сборки и таблицу материалов (несколько секунд);\n"
+                               "старая база остаётся, если на сайте чего-то не нашлось" if self.rz else
+                               "скачать с JLCPCB актуальные стеки, варианты формы заказа и доплаты:\n"
                                "несколько минут, около 1500 запросов; программой можно пользоваться,\n"
                                "старая база остаётся, пока новая не скачана целиком")
         self.btn_db.clicked.connect(self._update_db)
@@ -1032,17 +1114,22 @@ class Main(QMainWindow):
     def _update_db(self):
         if self.db_state and self.db_state[0] == "run":
             return
-        self.db_state = ("run", "options", 0, 0)
+        self.db_state = ("run", "rezonit.ru" if self.rz else "options", 0, 0)
         self._db_label()
-        LOG.info("stack database update")
+        LOG.info("stack database update (%s)", self.st["fab"])
+        rz = self.rz
 
         def job():
-            from ..jlcpcb import update as U
+            if rz:
+                from ..rezonit import update as U
+            else:
+                from ..jlcpcb import update as U
             try:
                 self.br.dbdone.emit(U.refresh(lambda stage, d, n: self.br.dbprog.emit(stage, d, n)))
             except OSError as e:
                 LOG.exception("stack database update failed")
-                self.br.dbdone.emit({"__error__": f"нет связи с JLCPCB ({e.__class__.__name__})"})
+                self.br.dbdone.emit({"__error__": f"нет связи с {'rezonit.ru' if rz else 'JLCPCB'} "
+                                                  f"({e.__class__.__name__})"})
             except Exception as e:
                 LOG.exception("stack database update failed")
                 self.br.dbdone.emit({"__error__": f"{e.__class__.__name__}: {e}"})
@@ -1150,7 +1237,10 @@ class Main(QMainWindow):
                     q.update(smin=r["smin"], smax=r["smax"])
             reqs.append(q)
         step = 0.01 / MM if self.mm else 0.1          # 0.01 mm or 0.1 mil grid
-        return {"layers": st["layers"], "thicknesses": st["thick"], "inner": st["inner"], "outer": st["outer"],
+        inner = st["inner"]
+        if self.rz:                             # one foil on all layers: the inner copper follows the outer
+            inner = sorted({k[3] for k in ST.order_options() if k[1] == st["layers"] and k[4] == st["outer"]})
+        return {"layers": st["layers"], "thicknesses": st["thick"], "inner": inner, "outer": st["outer"],
                 "plan": list(st["plan"]), "names": self._names(),       # all stacks: filters work on the list
                 "top": None, "thickness_pref": 1.6, "lim": dict(st["lim"], step=round(step, 6)),
                 "mask": st["mask"] or self._jlc_mask(), "finish": st["finish"], "reqs": reqs}
@@ -1226,7 +1316,7 @@ class Main(QMainWindow):
 
     def _pool(self):
         """Found stacks left by the surcharge filter, and how many it hid."""
-        if not self.st["nofee"]:
+        if not self.st["nofee"] or self.rz:
             return self.all_results, 0
         free = [r for r in self.all_results if r["fee"] == 0]
         return free, len(self.all_results) - len(free)
@@ -1260,7 +1350,9 @@ class Main(QMainWindow):
             vv = QVBoxLayout()
             vv.setSpacing(0)
             vv.addWidget(QLabel(f"<b>{r['name']}</b>"))
-            b = QLabel(f"{n - r['fails']}/{n} · {fee_text(r)} · {r['finished'] or r['thickness']} мм · Cu {r['inner_oz']:g}")
+            cost = ("типовая сборка", f"фольга {FOIL.get(r['outer_oz'], '?')} мкм") if self.rz else \
+                (fee_text(r), f"Cu {r['inner_oz']:g}")
+            b = QLabel(f"{n - r['fails']}/{n} · {cost[0]} · {r['finished'] or r['thickness']} мм · {cost[1]}")
             b.setMinimumWidth(10)
             b.setObjectName("mute")
             vv.addWidget(b)
@@ -1295,14 +1387,20 @@ class Main(QMainWindow):
         head.addWidget(t)
         n = len(r["reqs"])
         chips = [(f"выполнено {n - r['fails']} из {n}", "chipok" if r["fails"] == 0 else "chipbad",
-                  "сколько заданных импедансов получается на этом стеке"),
-                 (fee_text(r), "chipok" if r["fee"] == 0 else "chipbad",
-                  "доплата JLC за выбор этого стека (Specify Stackup), по форме заказа:\n"
-                  "5 плат 100×100 мм; для другого размера и количества сумма другая.\n"
-                  "Без доплаты обычно только стандартный стек каждой комбинации."),
-                 (f"{r['finished'] or r['thickness']} мм", "chip", "готовая толщина платы по данным JLC (±10%)"),
-                 (f"внутр. Cu {r['inner_oz']:g} oz" + (f" +${r['cu_fee']:.0f}" if r.get("cu_fee") else ""), "chip",
-                  "внутренняя медь; 1 oz и толще JLC считает отдельно (по форме заказа, 5 плат 100×100 мм)")]
+                  "сколько заданных импедансов получается на этом стеке")]
+        if self.rz:
+            chips += [("типовая сборка", "chipok", "типовая сборка Резонита — стандартный стек, без доплаты за него"),
+                      (f"{r['finished']} мм", "chip",
+                       "фактическая толщина по данным Резонита (без металлизации, покрытия и маски)"),
+                      (f"фольга {FOIL.get(r['outer_oz'], '?')} мкм", "chip", "базовая фольга на всех слоях")]
+        else:
+            chips += [(fee_text(r), "chipok" if r["fee"] == 0 else "chipbad",
+                      "доплата JLC за выбор этого стека (Specify Stackup), по форме заказа:\n"
+                      "5 плат 100×100 мм; для другого размера и количества сумма другая.\n"
+                      "Без доплаты обычно только стандартный стек каждой комбинации."),
+                     (f"{r['finished'] or r['thickness']} мм", "chip", "готовая толщина платы по данным JLC (±10%)"),
+                     (f"внутр. Cu {r['inner_oz']:g} oz" + (f" +${r['cu_fee']:.0f}" if r.get("cu_fee") else ""), "chip",
+                      "внутренняя медь; 1 oz и толще JLC считает отдельно (по форме заказа, 5 плат 100×100 мм)")]
         if r["expedited"]:
             chips.append(("ускоренно", "chip", "доступно ускоренное производство"))
         for txt, kind, tip in chips:
@@ -1645,12 +1743,13 @@ def init_logging(debug):
 
 def selftest():
     """--selftest: what a packaged build must manage without a screen: worker processes,
-    a search, the result card in both languages, the Altium and the KiCad export (written
+    a search, the result card in both languages, the Altium and the KiCad export, a Rezonit search (exports written
     to data/selftest/, CI opens the KiCad one with KiCad). The report goes to
     data/selftest.log (a windowed .exe has no console); exit code 0 = ok."""
     lines, t0 = [], time.time()
     try:
         w = Main()
+        w._fab_changed(["jlcpcb"])
         w.st.update(layers=8, plan="SGSPPSGS", names={}, thick=[1.6], inner=[0.5], outer=1.0, nofee=False,
                     unit="mil", mode="detail", reqs=std3(), mask=None)
         spec = w._spec()
@@ -1674,6 +1773,18 @@ def selftest():
         w._lang_changed("en")
         lines.append(f"english: {w.lbl_status.text()}")
         ok = bool(res) and r is not None and n >= len(spec["reqs"]) and nk == n
+        w._fab_changed(["rezonit"])
+        w.st.update(layers=6, plan="SGSSGS", names={}, thick=[1.5], outer=1.0)
+        spec = w._spec()
+        res = E.search(spec)
+        w._on_done(res, spec)
+        r = w.cur
+        text = A.build(w._stack(r), spec["plan"], r, spec["reqs"], names=spec["names"], finish=spec["finish"],
+                       mask=spec["mask"], lim=spec["lim"])
+        lines.append(f"rezonit: {r['name']}, W/S min {spec['lim']['wmin']}/{spec['lim']['smin']} mil, "
+                     f"{w.lbl_status.text()}")
+        ok = ok and bool(res) and "TRACEIMPEDANCE_V8_" in text
+        w._fab_changed(["jlcpcb"])
     except Exception:
         LOG.exception("selftest failed")
         import traceback

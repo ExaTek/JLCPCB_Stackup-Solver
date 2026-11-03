@@ -67,12 +67,14 @@ def profile_desc(req, name):
     return nm
 
 
-def build(stack, plan, result, reqs, names=None, finish="ENIG", mask=(1.0, 0.6, 3.8), outer_t=1.6,
+def build(stack, plan, result, reqs, names=None, finish="ENIG", mask=None, outer_t=None,
           df=0.02, lim=None):
     """stack: jlc.stackup.Stack; plan: ['S','G',...]; result: engine.search() entry
     for this stack; reqs: requirement dicts; mask: (C1 over substrate, C2 over
-    trace, Er) in mils; lim: the search's W/S limits (for widths synthesized on
+    trace, Er) in mils, outer_t: plated outer copper in mils (both default to the
+    stack's model); lim: the search's W/S limits (for widths synthesized on
     layers a requirement did not cover). Returns the file text (without BOM)."""
+    mask, outer_t = mask or stack.mask(), outer_t or stack.outer_t()
     names = names or default_names(plan)
     sub = g()
     master = g()
