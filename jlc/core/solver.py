@@ -20,8 +20,6 @@ JLC's own solver results in data/jlc_calc_cache.json (see validate.py).
 import math
 
 import numpy as np
-import scipy.sparse as sp
-import scipy.sparse.linalg as spla
 
 ETA0 = 376.730313668
 
@@ -65,6 +63,46 @@ def _mesh(keys, lo, hi, hmin, hmax, ratio=1.25):
     return out
 
 
+def _block_solve(gh, gv, fixed, val):
+    """Potential on the grid: direct block elimination, column by column along the longer side.
+    gh[i, j] is the conductance of (i, j)-(i+1, j), gv[i, j] of (i, j)-(i, j+1); fixed nodes hold val."""
+    if fixed.shape[1] > fixed.shape[0]:
+        return _block_solve(gv.T, gh.T, fixed.T, val.T).T
+    nx, ny = fixed.shape
+    diag = np.zeros((nx, ny))
+    diag[:-1, :] += gh
+    diag[1:, :] += gh
+    diag[:, :-1] += gv
+    diag[:, 1:] += gv
+    diag[fixed] = 1.0
+    known = fixed * val                             # known potentials move to the right side
+    y = np.zeros((nx, ny))
+    y[:-1, :] += gh * known[1:, :]
+    y[1:, :] += gh * known[:-1, :]
+    y[:, :-1] += gv * known[:, 1:]
+    y[:, 1:] += gv * known[:, :-1]
+    y[fixed] = val[fixed]
+    free = ~fixed
+    cx = gh * (free[:-1, :] & free[1:, :])          # coupling of neighbouring columns
+    cy = gv * (free[:, :-1] & free[:, 1:])          # coupling inside a column
+    r, k = np.arange(ny), np.arange(ny - 1)
+    inv = [None] * nx
+    for i in range(nx):
+        a = np.zeros((ny, ny))
+        a[r, r] = diag[i]
+        a[k, k + 1] = a[k + 1, k] = -cy[i]
+        if i:
+            c = cx[i - 1]
+            a -= (c[:, None] * inv[i - 1]) * c[None, :]
+            y[i] += c * (inv[i - 1] @ y[i - 1])
+        inv[i] = np.linalg.inv(a)
+    phi = np.zeros((nx, ny))
+    phi[-1] = inv[-1] @ y[-1]
+    for i in range(nx - 2, -1, -1):
+        phi[i] = inv[i] @ (y[i] + cx[i] * phi[i + 1])
+    return phi
+
+
 class _Problem:
     """One cross-section: x >= 0 half plane, trace(s) given as trapezoids."""
 
@@ -91,22 +129,9 @@ class _Problem:
         f[1:, :] += eps * dx[:, None] * 0.5
         f[:-1, :] += eps * dx[:, None] * 0.5
         gv = f / dy[None, :]
-        idx = np.arange(nx * ny).reshape(nx, ny)
-        a, b = idx[:-1, :].ravel(), idx[1:, :].ravel()
-        c, d = idx[:, :-1].ravel(), idx[:, 1:].ravel()
-        gi, gj = np.concatenate([a, c]), np.concatenate([b, d])
-        g = np.concatenate([gh.ravel(), gv.ravel()])
-        n = nx * ny
-        L = sp.coo_matrix((np.concatenate([-g, -g, g, g]),
-                           (np.concatenate([gi, gj, gi, gj]), np.concatenate([gj, gi, gi, gj]))),
-                          shape=(n, n)).tocsr()
-        fx = self.fixed.ravel()
-        phi = self.val.ravel().copy()
-        free = ~fx
-        rhs = -L[free][:, fx] @ phi[fx]
-        phi[free] = spla.spsolve(L[free][:, free].tocsc(), rhs)
-        dphi = phi[gi] - phi[gj]
-        return float(np.sum(g * dphi * dphi))  # = 2*energy = C*V^2 (V=1), in eps0 units
+        phi = _block_solve(gh, gv, self.fixed, self.val)
+        d1, d2 = phi[1:, :] - phi[:-1, :], phi[:, 1:] - phi[:, :-1]
+        return float(np.sum(gh * d1 * d1) + np.sum(gv * d2 * d2))  # = 2*energy = C*V^2 (V=1), in eps0 units
 
     def z(self):
         c = self.capacitance(self.eps)

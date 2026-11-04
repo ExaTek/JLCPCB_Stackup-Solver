@@ -27,10 +27,9 @@ import sys
 import threading
 import time
 
-from scipy.optimize import brentq
-
 from .. import paths as P
 from . import stackup as ST
+from .roots import brentq
 from .solver import impedance
 
 CACHE_PATH = os.path.join(P.CACHE, "engine_cache.json")

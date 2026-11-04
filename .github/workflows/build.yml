@@ -56,6 +56,17 @@ jobs:
         run: python -m jlc --selftest
       - name: Build
         run: pyinstaller --noconfirm packaging/JLCPCB-Stackup-Solver.spec
+      - name: Self-test on an X display (the offscreen one below would not notice a missing xcb library)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get install -y xvfb
+          code=0
+          QT_QPA_PLATFORM=xcb xvfb-run -a "${{ matrix.exe }}" --selftest || code=$?
+          d=dist/JLCPCB-Stackup-Solver/data
+          cat "$d/selftest.log" || true
+          rm -rf "$d/selftest.log" "$d/selftest" "$d/settings.json" "$d/cache" "$d/logs"
+          exit $code
       - name: Self-test of the packaged build (writes into its own data/)
         shell: bash
         run: |

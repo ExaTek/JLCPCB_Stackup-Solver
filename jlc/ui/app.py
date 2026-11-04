@@ -1912,6 +1912,19 @@ def init_logging(debug):
     LOG.warning("start: v%s, python %s, %s, debug=%s", __version__, sys.version.split()[0], sys.executable, debug)
 
 
+def solver_vs_jlc(every=6):
+    """Worst deviation (%) of the offline solver from a sample of JLC's stored Si9000 answers."""
+    from ..core.solver import impedance
+    from ..jlcpcb import cache as C
+    worst = 0.0
+    for k, z in list(C.Cache().d.items())[::every]:
+        if z is not None:
+            model, p = C.parse_key(k)
+            dev = 100 * (impedance(model, p, fine=1.5)[0] - z) / z
+            worst = max(worst, dev, key=abs)
+    return worst
+
+
 def selftest():
     """--selftest: what a packaged build must manage without a screen: worker processes,
     a search, the result card in both languages, the Altium and the KiCad export, a Rezonit search (exports written
@@ -1947,10 +1960,12 @@ def selftest():
         lines.append(f"altium etch: {etch} of {n} trace impedances")
         orient = "".join(kv[-1] for kv in text.split("|") if re.match(r"LAYER_V8_\d+COPPERORIENTATION=", kv))
         lines.append(f"altium copper orientation: {orient}")
+        worst = solver_vs_jlc()
+        lines.append(f"solver vs JLC's answers: worst {worst:+.2f}%")
         lines.append(f"update: version button '{w.btn_ver.text()}', 1.10.0 newer than 1.9.9: {U.is_newer('1.10.0', '1.9.9')}, "
                      f"archive {U.asset_name(__version__)}")
         ok = (bool(res) and r is not None and n >= len(spec["reqs"]) and nk == n and etch == n
-              and orient == "00101011" and U.is_newer("1.10.0", "1.9.9") and not U.is_newer("v1.2.0", "1.2.0"))
+              and orient == "00101011" and abs(worst) < 0.35 and U.is_newer("1.10.0", "1.9.9") and not U.is_newer("v1.2.0", "1.2.0"))
         w._fab_changed(["rezonit"])
         w.st.update(layers=6, plan="SGSSGS", names={}, thick=[1.5], outer=1.0)
         spec = w._spec()

@@ -1,7 +1,6 @@
 """Width / gap synthesis on top of the solver (offline) or JLC (online)."""
 import numpy as np
-from scipy.optimize import brentq
-
+from .roots import brentq
 from .solver import impedance
 
 FINE = 1.0

@@ -1,7 +1,7 @@
 # PyInstaller spec: a self-contained program folder
 #   JLCPCB-Stackup-Solver/
 #     JLCPCB-Stackup-Solver[.exe]   the program
-#     lib/                          Python, Qt, numpy/scipy (do not touch)
+#     lib/                          Python, Qt, numpy (do not touch)
 #     data/                         stack database and everything that changes (see jlc/paths.py)
 # Build from the repository root:
 #   pip install -r requirements.txt pyinstaller
@@ -23,10 +23,15 @@ if sys.platform.startswith("linux"):
 
 a = Analysis([os.path.join(ROOT, "jlc", "__main__.py")], pathex=[ROOT], binaries=binaries,
              datas=[(os.path.join(ROOT, "jlc", "resources"), "jlc/resources")],
-             excludes=["tkinter", "matplotlib", "PIL", "IPython", "pytest", "pandas"])
+             excludes=["tkinter", "matplotlib", "PIL", "IPython", "pytest", "pandas", "scipy", "setuptools", "pkg_resources",
+                       "numpy.f2py", "numpy.tests", "PySide6.QtNetwork"])
 # a Widgets app needs neither the software OpenGL renderer nor Qt's own translations (~27 MB)
 a.binaries = [b for b in a.binaries if "opengl32sw" not in b[0]]
 a.datas = [d for d in a.datas if "/translations/" not in d[0].replace("\\", "/")]
+# nothing here talks to Qt's network stack or draws SVG, JPEG, TIFF, WebP; Windows paints through qwindows (~8 MB)
+DROP = ("qt6network", "qt6svg", "qtnetwork.", "/plugins/tls/", "/plugins/imageformats/", "/plugins/iconengines/",
+        "/plugins/networkinformation/", "/plugins/generic/", "qdirect2d")
+a.binaries = [b for b in a.binaries if not any(x in b[0].replace("\\", "/").lower() for x in DROP)]
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name=NAME, console=False, upx=False,
           icon=os.path.join(ROOT, "jlc", "resources", "app.ico") if sys.platform == "win32" else None,
