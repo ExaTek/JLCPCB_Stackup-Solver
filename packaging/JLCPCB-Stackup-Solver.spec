@@ -18,7 +18,7 @@ binaries = []
 if sys.platform.startswith("linux"):
     # xcb helpers Qt needs and many desktops lack ("could not load the Qt platform plugin xcb")
     for lib in ("libxcb-cursor.so.0", "libxcb-icccm.so.4", "libxcb-image.so.0", "libxcb-keysyms.so.1",
-                "libxcb-render-util.so.0", "libxkbcommon-x11.so.0"):
+                "libxcb-render-util.so.0", "libxcb-shape.so.0", "libxkbcommon-x11.so.0"):
         binaries += [(p, ".") for p in glob.glob(f"/usr/lib/*-linux-gnu/{lib}")[:1]]
 
 a = Analysis([os.path.join(ROOT, "jlc", "__main__.py")], pathex=[ROOT], binaries=binaries,
