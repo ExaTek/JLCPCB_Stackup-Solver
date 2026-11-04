@@ -201,6 +201,7 @@ def build(stack, plan, result, reqs, names=None, finish="ENIG", mask=None, outer
             tl = ("Edge-Coupled " if diff else "") + ("Coated Microstrip" if outer else "Offset Stripline")
             z = v["Z"]
             kv += [(p + "WIDTH", f"{v['W'] * MM:.6f}mm"), (p + "GAP", fmt(v["S"] if diff else 5)),
+                   (p + "ETCH", f"{stack.etch_factor(L, outer_t if outer else None):.4g}"),
                    (p + "CALCMODE", "1"),
                    (p + "IMPEDANCEERROR", f"{abs(z - float(req['z'])) / float(req['z']) * 100:.4f}%"),
                    (p + "TLTYPENAME", tl), (p + "HASPLATING", "False"), (p + "USESOLDERMASK", str(outer))]

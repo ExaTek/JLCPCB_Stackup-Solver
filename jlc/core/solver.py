@@ -8,6 +8,9 @@ Parameters use Si9000 names and mils, exactly as sent to JLC's calc API:
   H2/Er2  dielectric above the trace base, up to the far plane (includes T1)
   W1/W2   trace bottom/top width, T1 trace thickness, S1 edge gap at the base
   C1/C2/C3/CEr  mask over substrate / over trace / between traces, mask Er
+  Plies1/Plies2 optional [(h, er), ...] when a dielectric is several plies of different Dk:
+          Plies1 from the plane up to the trace base, Plies2 from the trace base up to the
+          far plane. They replace Er1/Er2 in this solver; JLC's model has one Er per dielectric.
 
 Method: finite volumes on a graded rectilinear grid, half cross-section by
 symmetry (Neumann plane for single-ended, Dirichlet 0 plane for odd mode),
@@ -21,6 +24,25 @@ import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 
 ETA0 = 376.730313668
+
+
+def _plies_eps(y, plies, y0):
+    """Dk at heights y for plies [(h, er), ...] stacked upwards from y0."""
+    out = np.full_like(y, plies[-1][1], dtype=float)
+    z = y0
+    for h, er in plies[:-1]:
+        out = np.where((y >= z) & (y < z + h), er, out)
+        z += h
+    return out
+
+
+def _plies_keys(plies, y0):
+    """Interface heights of the plies, as mesh keys."""
+    out, z = [], y0
+    for h, _ in plies[:-1]:
+        z += h
+        out.append(z)
+    return out
 
 
 def _mesh(keys, lo, hi, hmin, hmax, ratio=1.25):
@@ -116,11 +138,13 @@ def impedance(model, p, fine=1.0):
         H2, Er2 = p["H2"], p["Er2"]
         top = H1 + H2
         X = xc + W1 / 2 + 6 * top + 10
-        ykeys = [0, yb, yt, top]
+        pl1, pl2 = p.get("Plies1"), p.get("Plies2")
+        ykeys = [0, yb, yt, top] + (_plies_keys(pl1, 0) if pl1 else []) + (_plies_keys(pl2, H1) if pl2 else [])
         xs = _mesh([0] + xedges, 0, X, hmin, max(top / 6, 0.5) / fine)
         ys = _mesh(ykeys, 0, top, hmin, max(top / 10, 0.25) / fine)
         pr = _Problem(xs, ys)
-        pr.eps[:] = np.where(pr.CY < H1, Er1, Er2)
+        pr.eps[:] = np.where(pr.CY < H1, _plies_eps(pr.CY, pl1, 0) if pl1 else Er1,
+                             _plies_eps(pr.CY, pl2, H1) if pl2 else Er2)
         pr.fixed[:, 0] = pr.fixed[:, -1] = True
     else:
         C1, C2, CEr = p.get("C1", 0.0), p.get("C2", 0.0), p.get("CEr", 1.0)
@@ -129,7 +153,8 @@ def impedance(model, p, fine=1.0):
         X = xc + W1 / 2 + 40 * span
         top = H1 + 40 * span
         mx = [xc - W1 / 2 - C2, xc + W1 / 2 + C2, xc - W2 / 2 - C2, xc + W2 / 2 + C2]
-        ykeys = [0, yb, yt, yb + C1, yb + C3, yt + C2]
+        pl1 = p.get("Plies1")
+        ykeys = [0, yb, yt, yb + C1, yb + C3, yt + C2] + (_plies_keys(pl1, 0) if pl1 else [])
         xs = _mesh([0] + xedges + mx, 0, X, hmin, max(span / 2, 1) / fine, 1.3)
         ys = _mesh(ykeys, 0, top, hmin, max(span / 2, 1) / fine, 1.3)
         pr = _Problem(xs, ys)
@@ -137,7 +162,7 @@ def impedance(model, p, fine=1.0):
         band = np.where(pr.CX < S / 2, C3, C1) if diff else C1
         mask = (pr.CY > yb) & (pr.CY < yb + band)
         mask |= (pr.CY > yb) & (pr.CY < yt + C2) & (np.abs(pr.CX - xc) < hw + C2)
-        pr.eps[:] = np.where(pr.CY < H1, Er1, np.where(mask, CEr, 1.0))
+        pr.eps[:] = np.where(pr.CY < H1, _plies_eps(pr.CY, pl1, 0) if pl1 else Er1, np.where(mask, CEr, 1.0))
         pr.fixed[:, 0] = True
         pr.fixed[:, -1] = True
         pr.fixed[-1, :] = True

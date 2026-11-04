@@ -6,20 +6,28 @@ Endpoints (all POST JSON, no auth, plain curl/urllib works):
       plateThickness, innerCopperThickness filters); body.total / body.list.
       The page parameter is pageNum: currentPage is silently ignored.
   /api/jlcTools/impedance/selectPageImpedancePicture           solver models
+  /api/jlcTools/impedance/getLayerThickness                    layer count -> board thicknesses
+  /api/jlcTools/impedance/selectImpedanceDefaultValue          allowed parameter ranges
   /api/jlcTools/impedance/impedance-config/copper-trace-width/list  T1 / etch
+      (traceCopperThickness = T1, traceWidthDelta = W1 - W2, both mil, by copper weight)
   /api/jlcTools/impedance/impedance-config/coverlay/list       solder mask C1..C3
   /api/jlcTools/impedance/calc                                 Si9000 solve
       body {accessId, impedance_calc_mark, paramMd5, impedance_calc_arg, uuid}
       returns immediately; the result arrives on the websocket
       wss://tools.jlc.com/jlcTools/webSocket/<uuid> as JSON with the same accessId.
 
-Only forward solves work (W -> Z). The "W2_<model>" back-solve marks fail
-without extra parameters, so widths are found by bisection on top of calc().
+Forward solves (W -> Z) are used. The "W2_<model>" back-solve also works when given Zo, MinW2,
+MaxW2, W2LinkW1Incr and ZoTol, but it stops within ZoTol of the target.
+
+jlcpcb.com/impedance (plain HTML) publishes the factory parameters: fetch_published().
+JLC's calculator page does not use them or the stack's Dk: it sends the model defaults of
+selectPageImpedancePicture (Er 4.3 / 4.2) and C1 / C2 from coverlay/list (checked 2026-11-04).
 """
 import base64
 import concurrent.futures as cf
 import json
 import os
+import re
 import socket
 import ssl
 import struct
@@ -126,7 +134,64 @@ def fetch_configs():
         "copper_trace_width": post("/impedance-config/copper-trace-width/list", {})["data"],
         "coverlay": post("/impedance-config/coverlay/list", {})["data"],
         "pictures": post("/selectPageImpedancePicture", {"currentPage": 1, "pageSize": 100})["body"]["list"],
+        "layer_thickness": fetch_layer_thickness(),
+        "default_values": post("/selectImpedanceDefaultValue", {"pageNum": 1, "pageSize": 200})["data"],
     }
+
+
+def fetch_layer_thickness():
+    """{layer count: [board thickness, mm]} the calculator offers."""
+    body = post("/getLayerThickness", {})["body"]
+    return {int(k): [float(x) for x in v] for k, v in body.items()}
+
+
+PUBLISHED_URL = "https://jlcpcb.com/impedance"
+
+
+def _tables(html):
+    """Every <table> of the page as rows of plain cell texts."""
+    out = []
+    for tb in re.findall(r"<table.*?</table>", html, re.S):
+        rows = [[re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", c)).strip()
+                 for c in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", tr, re.S)]
+                for tr in re.findall(r"<tr.*?</tr>", tb, re.S)]
+        out.append([r for r in rows if r])
+    return out
+
+
+def _num(s):
+    return float(re.match(r"\s*([\d.]+)", s).group(1))
+
+
+def parse_published(html):
+    """Factory parameters of jlcpcb.com/impedance. ValueError when the page changed shape."""
+    out = {}
+    for rows in _tables(html):
+        if not rows:
+            continue
+        head = " ".join(rows[0]).lower()
+        if "trace width" in head and len(rows) > 1:
+            i = next(k for k, c in enumerate(rows[0]) if "trace width" in c.lower())
+            out["min_trace_mil"] = out["min_gap_mil"] = _num(rows[1][i])
+        elif "prepreg type" in head:
+            out["prepreg_dk"] = {r[0]: _num(r[1]) for r in rows[1:]}
+        elif "coating above substrate" in head and len(rows) > 1:
+            cols = dict(zip(rows[0], rows[1]))
+            get = lambda word: _num(next(v for k, v in cols.items() if word in k.lower()))
+            out["mask"] = {"C1": get("above substrate"), "C2": get("above trace"),
+                           "C3": get("between traces"), "CEr": get("dielectric")}
+        elif "core dielectric constant" in head and len(rows) > 1:
+            out["core_dk"] = _num(rows[1][0])
+    missing = {"min_trace_mil", "prepreg_dk", "mask", "core_dk"} - set(out)
+    if missing:
+        raise ValueError(f"{PUBLISHED_URL}: not found {sorted(missing)}")
+    return out
+
+
+def fetch_published():
+    req = urllib.request.Request(PUBLISHED_URL, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return parse_published(r.read().decode("utf-8", "replace"))
 
 
 # ---------------------------------------------------------------- websocket

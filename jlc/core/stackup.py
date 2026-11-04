@@ -3,7 +3,10 @@ impedance calculator page (computedBaseMaterialThickness & co., checked
 against the page's own function on 2026-10-30):
 
 * outer layer: H1 = everything between the layer and its reference,
-  T1/etch/mask from the outer-copper config (base 0.5 oz entry preferred).
+  T1/etch from the copper config (base 0.5 oz entry preferred). Mask: what JLC publishes on
+  jlcpcb.com/impedance (configs "published"), a thicker coverlay entry of the copper weight wins.
+  Several plies between two copper layers: one Er for JLC's model (series connection, H / sum(h / er))
+  and the plies themselves for the offline solver (Plies1 / Plies2).
 * inner layer on a core: H1 = dielectric through its own core to the reference
   on that side, H2 = dielectric to the other reference + the layer's copper.
 * Er = plain average of the dielectric layers in each span.
@@ -101,6 +104,27 @@ def prune(templates, options):
     return out
 
 
+def mask_model(cfg, oz):
+    """Solder mask over outer copper of this weight: (C1 over substrate, C2 over trace,
+    C3 between traces, Er), mils. JLC has two sources that disagree: jlcpcb.com/impedance publishes
+    1.2 / 0.6 / 1.2, the coverlay list its calculator sends is 1.0 / 0.6 / 1.0 for 1 oz and
+    1.2 / 0.8 / 1.2 for 2 oz. The published table has no copper weights, so the thicker value wins."""
+    cv = _pick(cfg["coverlay"], oz, 1)
+    c = [cv["coatingAboveSubstrate"], cv["coatingAboveTrace"], cv["coatingBetweenTraces"]]
+    er = cv.get("coatingDielectricConstant", 3.8)
+    pub = (cfg.get("published") or {}).get("mask")
+    if pub:
+        c = [max(c[0], pub["C1"]), max(c[1], pub["C2"]), max(c[2], pub["C3"])]
+        er = pub["CEr"]
+    return c[0], c[1], c[2], er
+
+
+def min_trace():
+    """JLC's minimum (trace, gap) in mil from the published page."""
+    pub = load_configs().get("published") or {}
+    return pub.get("min_trace_mil", 3.5), pub.get("min_gap_mil", 3.5)
+
+
 def _pick(rows, oz, layer_type):
     rows = [r for r in rows if abs(r["systemCopperThickness"] - oz) < 0.01 and r["layerType"] == layer_type]
     if not rows:
@@ -193,7 +217,23 @@ class Stack:
         seg = self.items[i + 1:j]
         diel = [x for x in seg if x["k"] != CU]
         h = sum(x["h"] for x in diel) + sum(x["t"] for x in seg if x["k"] == CU)
-        return h, sum(x["er"] for x in diel) / len(diel)
+        # plies are in series for a field across them; a plain average of Dk would overstate a thin ply
+        return h, sum(x["h"] for x in diel) / sum(x["h"] / x["er"] for x in diel)
+
+    def plies(self, a, b):
+        """[(h, er), ...] between copper layers a and b, in the stack's top-down order, or None
+        when one Er describes them. Copper in between (a skipped layer) counts in the next ply."""
+        i, j = sorted((self._idx(a), self._idx(b)))
+        out, extra = [], 0.0
+        for x in self.items[i + 1:j]:
+            if x["k"] == CU:
+                extra += x["t"]
+            else:
+                out.append((x["h"] + extra, x["er"]))
+                extra = 0.0
+        if extra and out:
+            out[-1] = (out[-1][0] + extra, out[-1][1])
+        return out if len({e for _, e in out}) > 1 else None
 
     def copper(self, layer):
         return self.items[self._idx(layer)]
@@ -213,8 +253,7 @@ class Stack:
     # ------------------------------------------------------------ geometry
     def mask(self):
         """JLC solder mask model for the outer copper: (C1 over substrate, C2 over trace, Er)."""
-        cv = _pick(self.cfg["coverlay"], self.outer_oz, 1)
-        return cv["coatingAboveSubstrate"], cv["coatingAboveTrace"], cv.get("coatingDielectricConstant", 3.8)
+        return tuple(mask_model(self.cfg, self.outer_oz)[i] for i in (0, 1, 3))
 
     def outer_t(self):
         """Plated outer copper thickness (mil) of the copper model."""
@@ -231,12 +270,14 @@ class Stack:
             ref = (down or names[1]) if k == 0 else (up or names[-2])
             h, er = self.between(layer, ref)
             ct = _pick(self.cfg["copper_trace_width"], self.outer_oz, 1)
-            cv = _pick(self.cfg["coverlay"], self.outer_oz, 1)
+            c1, c2, c3, cer = mask_model(self.cfg, self.outer_oz)
             p = {"H1": h, "Er1": er, "T1": ct["traceCopperThickness"], "d": ct["traceWidthDelta"],
-                 "C1": cv["coatingAboveSubstrate"], "C2": cv["coatingAboveTrace"],
-                 "CEr": cv.get("coatingDielectricConstant", 3.8)}
+                 "C1": c1, "C2": c2, "CEr": cer}
             if diff:
-                p["C3"] = cv["coatingBetweenTraces"]
+                p["C3"] = c3
+            pl = self.plies(layer, ref)
+            if pl:      # the solver's height runs from the plane up to the trace
+                p["Plies1"] = pl if k else pl[::-1]
             if mask:
                 p.update(C1=float(mask[0]), C2=float(mask[1]), CEr=float(mask[2]))
                 if diff:
@@ -249,13 +290,28 @@ class Stack:
             own = self.copper(layer)["t"]
             hu, eu = self.between(up, layer)
             hd, ed = self.between(layer, down)
+            pu, pd = self.plies(up, layer), self.plies(layer, down)
             if self.copper(layer)["core"] == "upper":     # core below the layer
                 p = {"H1": hd, "Er1": ed, "H2": hu + own, "Er2": eu}
+                p1, p2 = pd[::-1] if pd else None, pu[::-1] if pu else None
             else:                                         # core above (or foil)
                 p = {"H1": hu, "Er1": eu, "H2": hd + own, "Er2": ed}
+                p1, p2 = pu, pd
+            if p1:
+                p["Plies1"] = p1
+            if p2:      # the first ply wraps the trace: H2 counts its copper
+                p["Plies2"] = [(p2[0][0] + own, p2[0][1])] + p2[1:]
             p.update(T1=ct["traceCopperThickness"], d=ct["traceWidthDelta"])
             model = "DiffOffsetStripline1B1A" if diff else "OffsetStripline1B1A"
         return model, {k2: round(v, 4) if isinstance(v, float) else v for k2, v in p.items()}
+
+    def etch_factor(self, layer, t=None):
+        """Altium's stored ETCH for this layer: W2 = W1 - 2 * T / ETCH must give JLC's W1 - W2.
+        The Etch field of AD's panel shows 1 / ETCH (file 2 = panel 0.5). t overrides T1."""
+        names = self.layer_names()
+        outer = names.index(layer) in (0, len(names) - 1)
+        ct = _pick(self.cfg["copper_trace_width"], self.outer_oz if outer else self.inner_oz, 1 if outer else 2)
+        return 2 * (t or ct["traceCopperThickness"]) / ct["traceWidthDelta"]
 
 
 def stacks(templates=None, cfg=None, layers=None, include_hdi=False, include_custom=False):

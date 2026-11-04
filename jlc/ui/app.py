@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComb
                                QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout,
                                QWidget)
 
+from .. import __version__
 from .. import paths as P
 from ..core import engine as E
 from ..core import stackup as ST
@@ -86,7 +87,8 @@ def ddr_example():
 
 DEFAULT = {"layers": 8, "outer": 1.0, "thick": [1.6], "inner": [0.5, 1.0], "nofee": False, "plan": "SGSPPSGS",
            "names": {}, "reqs": std3(), "lim": {"wmin": 3.5, "wmax": 8.0, "smin": 3.5, "smax": 8.0},
-           "finish": "ENIG", "mask": None, "mode": "compact", "lastdir": "", "unit": "mil", "fab": "jlcpcb"}
+           "finish": "ENIG", "mask": None, "mode": "compact", "lastdir": "", "unit": "mil", "fab": "jlcpcb",
+           "db_updated": []}                    # factories whose database this user has refreshed
 
 NOTES = [(r"fixed geometry", "фикс."), (r"needs ([\d.]+) < min width", r"нужно W=\1 < мин."),
          (r"needs ([\d.]+) > max width", r"нужно W=\1 > макс."), (r"needs W ([\d.]+) > max width", r"нужно W=\1 > макс."),
@@ -221,6 +223,7 @@ class Card(QFrame):
                 b.setObjectName("flat")
                 b.setToolTip(tip or "свернуть / развернуть")
                 b.clicked.connect(lambda: self._toggle(b, title))
+                self.expand = lambda: self.body.isVisible() or self._toggle(b, title)
                 self.head.addWidget(b)
                 self.body.setVisible(not collapsed)
             else:
@@ -392,7 +395,7 @@ class StackView(QWidget):
                 p.setPen(QColor(C["mute"]))
                 p.setFont(small)
                 p.drawText(QRectF(x0 + bw + 8, y - 2, 300, h + 4), Qt.AlignVCenter,
-                           tr(f"маска {self._h(self.mask[0])} · Dk {self.mask[2]:g}"))
+                           tr(f"маска {self._h(self.mask[0])}, на дорожке {self._h(self.mask[1])} · Dk {self.mask[2]:g}"))
             elif kind == "cu":
                 role = self.plan[data]
                 p.setPen(Qt.NoPen)
@@ -440,7 +443,7 @@ class Bridge(QObject):
 class Main(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("JLCPCB Stackup Solver")
+        self.setWindowTitle(f"JLCPCB Stackup Solver {__version__}")
         scr = QApplication.primaryScreen().availableGeometry()
         self.resize(min(1840, scr.width()), min(1040, scr.height() - 40))
         self.st = self._load()
@@ -451,6 +454,7 @@ class Main(QMainWindow):
         self.last_prog = None                   # (done, total) of the running search
         self.tiers = {"ok"}                     # result groups shown (TIERS keys)
         self.db_state = None                    # stack database update: ("run", stage, done, total) | ("error", msg)
+        self.search_after = False               # start the search when the running update ends
         self.br = Bridge()
         self.br.progress.connect(self._on_progress)
         self.br.done.connect(self._on_done)
@@ -478,6 +482,8 @@ class Main(QMainWindow):
             self.resize(old[0])
         if self.spec_used:
             self._fill_list()                   # keeps the selected stack
+        if self.search_after:
+            self.btn_go.setEnabled(False)
         if getattr(self, "busy", False):
             self.btn_go.setEnabled(False)
             self.prog.show()
@@ -603,7 +609,8 @@ class Main(QMainWindow):
         self.mask_card = Card("Маска и покрытие", collapsible=True, collapsed=True,
                               tip="параметры паяльной маски и финишного покрытия")
         v.addWidget(self.mask_card)
-        self.set_card = Card("Настройки", collapsible=True, collapsed=True, tip="база стеков и папка данных")
+        self.set_card = Card("Настройки", collapsible=True, collapsed=not (self.db_state and self.db_state[0] == "run"),
+                             tip="база стеков и папка данных")
         v.addWidget(self.set_card)
         v.addStretch()
         self._render_board()
@@ -613,7 +620,7 @@ class Main(QMainWindow):
         self._render_mask()
         self._render_settings()
 
-        sa = QScrollArea()
+        sa = self.left_scroll = QScrollArea()
         sa.setWidgetResizable(True)
         sa.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         sa.setWidget(self.lw)
@@ -624,11 +631,10 @@ class Main(QMainWindow):
         ov.addWidget(sa, 1)
         foot = QVBoxLayout()
         foot.setContentsMargins(12, 0, 12, 0)
-        self.btn_go = QPushButton("Подобрать стек")
+        self.btn_go = QPushButton()
         self.btn_go.setObjectName("primary")
-        self.btn_go.setToolTip("перебрать все типовые сборки Резонита с этими параметрами и найти подходящие" if self.rz
-                               else "перебрать все заказываемые стеки JLC с этими параметрами и найти самые дешёвые подходящие")
-        self.btn_go.clicked.connect(self._search)
+        self._go_label()
+        self.btn_go.clicked.connect(self._go)
         foot.addWidget(self.btn_go)
         self.prog = QProgressBar()
         self.prog.setFixedHeight(20)
@@ -756,7 +762,7 @@ class Main(QMainWindow):
     def _fab_min(self):
         """Factory minimum W and S in mil: JLC 3.5/3.5; Rezonit by foil, "advanced" class."""
         if not self.rz:
-            return 3.5, 3.5
+            return ST.min_trace()
         m = ST.db()["meta"]["min_mm"]
         foil = str(FOIL[self.st["outer"]])
         return round(m["trace"][foil][1] / MM, 2), round(m["gap"][foil][1] / MM, 2)
@@ -769,8 +775,8 @@ class Main(QMainWindow):
     def _fab_changed(self, v):
         if v[0] == self.st["fab"]:
             return
-        if getattr(self, "busy", False):
-            self._status("дождитесь конца подбора")
+        if getattr(self, "busy", False) or (self.db_state and self.db_state[0] == "run"):
+            self._status("дождитесь конца подбора или обновления базы")
             self._render_board()
             return
         LOG.info("factory -> %s", v[0])
@@ -1019,15 +1025,17 @@ class Main(QMainWindow):
             n = QLabel(f"Минимум Резонита для фольги {foil} мкм: {t[0]:g} мм базовый, {t[1]:g} мм продвинутый "
                        f"(цена ×1.5), {t[2]:g} мм предельный (цена по запросу). По умолчанию — продвинутый.")
         else:
-            n = QLabel("Минимум JLC для многослойных — 3.5/3.5 mil (0.09 мм); 3 mil допустимо только в фан-ауте BGA.")
+            w_, s_ = ST.min_trace()
+            n = QLabel(f"Минимум JLC для многослойных — {w_:g}/{s_:g} mil ({w_ * MM:.2f} мм); "
+                       "3 mil допустимо только в фан-ауте BGA.")
         n.setObjectName("mute")
         n.setWordWrap(True)
         bl.addWidget(n)
         self._loc(self.lim_card)
 
     def _jlc_mask(self):
-        cv = ST._pick(ST.load_configs()["coverlay"], self.st["outer"], 1)
-        return [cv["coatingAboveSubstrate"], cv["coatingAboveTrace"], cv.get("coatingDielectricConstant", 3.8)]
+        c1, c2, _, er = ST.mask_model(ST.load_configs(), self.st["outer"])
+        return [c1, c2, er]
 
     def _render_mask(self):
         bl = self.mask_card.bl
@@ -1059,7 +1067,8 @@ class Main(QMainWindow):
         bl.addLayout(gm)
         n = QLabel("По умолчанию — толщина маски как у JLC (Резонит её не публикует), Dk 3.5 по данным Резонита. "
                    "Маска учитывается в расчёте наружных слоёв и в файле Altium." if self.rz else
-                   "По умолчанию — модель маски JLC. Маска учитывается в расчёте наружных слоёв и в файле Altium.")
+                   "По умолчанию — маска, опубликованная JLC на jlcpcb.com/impedance (обновляется вместе с базой). "
+                   "Маска учитывается в расчёте наружных слоёв и в файле Altium.")
         n.setObjectName("mute")
         n.setWordWrap(True)
         bl.addWidget(n)
@@ -1085,6 +1094,11 @@ class Main(QMainWindow):
         self.lbl_db.setWordWrap(True)
         h.addWidget(self.lbl_db, 1)
         bl.addLayout(h)
+        self.bar_db = QProgressBar()
+        self.bar_db.setFixedHeight(16)
+        self.bar_db.setTextVisible(False)
+        self.bar_db.hide()
+        bl.addWidget(self.bar_db)
         d = QLabel(f"папка данных: {P.DATA}")
         d.setObjectName("mute")
         d.setWordWrap(True)
@@ -1101,15 +1115,49 @@ class Main(QMainWindow):
             _, stage, done, total = st
             text = f"обновляю: {self.DB_STAGES.get(stage, stage)}" + (f" {done} из {total}" if total else "…")
             color = C["text"]
+            self.bar_db.setRange(0, total)      # total 0: a stage without a count, the bar just runs
+            self.bar_db.setValue(done)
+            self.bar_db.show()
         else:
+            self.bar_db.hide()
             m = ST.db()["meta"]
             text = f"обновлено {m['updated']} · стеков {m['templates']}"
             color = C["mute"]
+            ch = m.get("model_changes") or []
+            if ch:
+                text += "\nJLC изменил параметры: " + "; ".join(ch[:5]) + (f"; ещё {len(ch) - 5}" if len(ch) > 5 else "")
+                color = C["warn"]
+            if m.get("published_error"):
+                text += "\nстраница параметров JLC не прочитана, значения прежние: " + m["published_error"]
+                color = C["warn"]
             if st:
                 text = f"ошибка обновления: {st[1]}\n" + text
                 color = C["warn"]
         self.lbl_db.setText(tr(text))
         self.lbl_db.setStyleSheet(f"color:{color}")
+
+    def _go_label(self):
+        need = self.st["fab"] not in self.st["db_updated"]
+        self.btn_go.setText(tr("Обновить базу и подобрать стек" if need else "Подобрать стек"))
+        self.btn_go.setToolTip(tr("база стеков ещё ни разу не обновлялась: сначала скачать актуальную, затем подобрать стек"
+                                  if need else
+                                  "перебрать все типовые сборки Резонита с этими параметрами и найти подходящие" if self.rz
+                                  else "перебрать все заказываемые стеки JLC с этими параметрами и найти самые дешёвые подходящие"))
+
+    def _go(self):
+        """The main button: the first time for this factory update the database, then search."""
+        if self.st["fab"] in self.st["db_updated"]:
+            self._search()
+            return
+        if not self.st["reqs"]:
+            QMessageBox.information(self, tr("Подбор"), tr("Добавьте хотя бы один импеданс."))
+            return
+        self.search_after = True
+        self.btn_go.setEnabled(False)
+        self.set_card.expand()
+        QTimer.singleShot(0, lambda: self.left_scroll.ensureWidgetVisible(self.set_card))
+        self._status("обновляю базу стеков, затем подберу стек…")
+        self._update_db()
 
     def _update_db(self):
         if self.db_state and self.db_state[0] == "run":
@@ -1140,16 +1188,29 @@ class Main(QMainWindow):
         self._db_label()
 
     def _on_db_done(self, out):
+        after, self.search_after = self.search_after, False
         if "__error__" in out:
             self.db_state = ("error", out["__error__"])
             self._status("база стеков не обновлена: " + out["__error__"])
         else:
             LOG.info("stack database updated: %s", out)
             self.db_state = None
+            before = self.st["lim"]["wmin"], self.st["lim"]["smin"]
             self.meta = self._meta()
+            if self.st["fab"] not in self.st["db_updated"]:
+                self.st["db_updated"].append(self.st["fab"])
+            self._save()
+            if not self.rz and before != self._fab_min() and before == (3.5, 3.5):
+                self._set_fab_min()
             self._render_board()
+            self._render_lim()
+            self._render_mask()
             self._status(f"база стеков обновлена: {out['templates']} стеков; нажмите «Подобрать стек», чтобы пересчитать")
         self._db_label()
+        self._go_label()
+        self.btn_go.setEnabled(True)
+        if after:
+            self._search()                      # after a failed update: with the database at hand
 
     def _mask_set(self, i, v):
         self.st["mask"] = self.st["mask"] or self._jlc_mask()
@@ -1738,7 +1799,7 @@ def init_logging(debug):
               QtMsgType.QtWarningMsg: logging.WARNING, QtMsgType.QtCriticalMsg: logging.ERROR,
               QtMsgType.QtFatalMsg: logging.CRITICAL}
     qInstallMessageHandler(lambda mode, ctx, msg: LOG.log(levels.get(mode, logging.WARNING), "Qt: %s", msg))
-    LOG.warning("start: python %s, %s, debug=%s", sys.version.split()[0], sys.executable, debug)
+    LOG.warning("start: v%s, python %s, %s, debug=%s", __version__, sys.version.split()[0], sys.executable, debug)
 
 
 def selftest():
@@ -1772,7 +1833,9 @@ def selftest():
                      f"{len(files['.kicad_pro']['net_settings']['classes']) - 1} net classes, {nk} rules")
         w._lang_changed("en")
         lines.append(f"english: {w.lbl_status.text()}")
-        ok = bool(res) and r is not None and n >= len(spec["reqs"]) and nk == n
+        etch = sum(1 for kv in text.split("|") if kv.startswith("TRACEIMPEDANCE_V8_") and "ETCH=" in kv)
+        lines.append(f"altium etch: {etch} of {n} trace impedances")
+        ok = bool(res) and r is not None and n >= len(spec["reqs"]) and nk == n and etch == n
         w._fab_changed(["rezonit"])
         w.st.update(layers=6, plan="SGSSGS", names={}, thick=[1.5], outer=1.0)
         spec = w._spec()
@@ -1790,7 +1853,7 @@ def selftest():
         import traceback
         lines.append(traceback.format_exc())
         ok = False
-    lines.append(f"{'OK' if ok else 'FAILED'} (program {P.APP_DIR}, data {P.DATA}, frozen={P.FROZEN}, "
+    lines.append(f"{'OK' if ok else 'FAILED'} (v{__version__}, program {P.APP_DIR}, data {P.DATA}, frozen={P.FROZEN}, "
                  f"python {sys.version.split()[0]})")
     with open(P.data("selftest.log"), "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
