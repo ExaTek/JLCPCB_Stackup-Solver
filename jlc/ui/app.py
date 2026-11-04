@@ -15,8 +15,8 @@ import sys
 import threading
 import time
 
-from PySide6.QtCore import QLocale, QObject, QPointF, QRectF, QSize, Qt, QTimer, QtMsgType, Signal, qInstallMessageHandler
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QIcon, QPainter, QPalette, QPen, QPixmap
+from PySide6.QtCore import QLocale, QObject, QPointF, QRectF, QSize, Qt, QTimer, QtMsgType, QUrl, Signal, qInstallMessageHandler
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QPainter, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFrame,
                                QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QMainWindow, QMessageBox, QProgressBar, QPushButton, QScrollArea,
@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComb
 
 from .. import __version__
 from .. import paths as P
+from .. import updater as U
 from ..core import engine as E
 from ..core import stackup as ST
 from ..export import altium as A
@@ -168,6 +169,10 @@ QPushButton#jlc:disabled {{ background:#1d3f6e; border-color:#1d3f6e; color:#a9c
 QPushButton#jlcerr {{ background:{C['badbg']}; border:1px solid #6b3a3a; color:#ff9d94; font-weight:600; padding:7px 16px; }}
 QPushButton#seg {{ border-radius:0; padding:4px 14px; }}
 QPushButton#seg:checked {{ background:{C['acc']}; color:white; border-color:{C['acc']}; }}
+QPushButton#ver {{ border-radius:11px; padding:2px 11px; color:{C['mute']}; }}
+QPushButton#ver[tone="ok"] {{ background:{C['okbg']}; border-color:#2f5a3d; color:{C['oktx']}; }}
+QPushButton#ver[tone="warn"] {{ background:#3a3220; border-color:#6b5a2e; color:#f0d08a; }}
+QPushButton#ver:hover {{ border-color:{C['acc']}; }}
 QPushButton#pill {{ border-radius:11px; padding:2px 11px; min-width:20px; color:{C['mute']}; }}
 QPushButton#pill:checked {{ background:#2c4470; border-color:#4c74b8; color:#dbe7ff; font-weight:600; }}
 QPushButton#pill[tone="ok"]:checked {{ background:{C['okbg']}; border-color:#2f5a3d; color:{C['oktx']}; }}
@@ -437,6 +442,7 @@ class Bridge(QObject):
     checked = Signal(object, object)
     dbprog = Signal(str, int, int)
     dbdone = Signal(object)
+    upd = Signal(object)
 
 
 # ---------------------------------------------------------------- main window
@@ -462,6 +468,8 @@ class Main(QMainWindow):
         self.br.checked.connect(self._on_checked)
         self.br.dbprog.connect(self._on_db_progress)
         self.br.dbdone.connect(self._on_db_done)
+        self.br.upd.connect(self._on_upd)
+        self.upd = {"state": "check"}          # program update, see _ver_show
         i18n.LANG = self.st.get("lang", "ru")
         self._build()
 
@@ -591,6 +599,104 @@ class Main(QMainWindow):
         self._save()
         super().closeEvent(ev)
 
+    # ------------------------------------------------ program update
+    def _ver_show(self):
+        """Version button: green = latest, yellow = update available, grey = not known yet."""
+        u = self.upd
+        state, new = u["state"], u.get("info", {}).get("version", "")
+        text, tone, tip = __version__, "", "проверяю, есть ли новая версия…"
+        if state == "latest":
+            tone, tip = "ok", f"установлена последняя версия ({__version__})\nнажмите, чтобы проверить ещё раз"
+        elif state == "unknown":
+            tip = f"не удалось проверить обновления ({u.get('error')})\nнажмите, чтобы проверить ещё раз"
+        elif state == "avail":
+            text, tone = "Есть обновление", "warn"
+            tip = (f"скачать и установить версию {new} вместо {__version__}\n"
+                   "программа перезапустится; база стеков, настройки и кэш в data/ останутся как есть")
+            if u.get("error"):
+                tip = f"обновление не установлено: {u['error']}\n\n" + tip
+        elif state == "download":
+            done, total = u.get("done", 0), u.get("total", 0)
+            text, tone, tip = (f"Скачиваю {done * 100 // total}%" if total else "Скачиваю…"), "warn", f"версия {new}"
+        elif state == "install":
+            text, tone, tip = "Устанавливаю…", "warn", f"версия {new}: программа перезапустится"
+        self.btn_ver.setText(tr(text))
+        self.btn_ver.setToolTip(tr(tip))
+        self.btn_ver.setEnabled(state in ("latest", "unknown", "avail"))
+        self.btn_ver.setProperty("tone", tone)
+        self.btn_ver.style().unpolish(self.btn_ver)
+        self.btn_ver.style().polish(self.btn_ver)
+
+    def check_update(self):
+        self.upd = {"state": "check"}
+        self._ver_show()
+
+        def job():
+            try:
+                info = U.check()
+                self.br.upd.emit({"state": "avail" if U.is_newer(info["version"]) else "latest", "info": info})
+            except Exception as e:
+                LOG.warning("update check failed: %s: %s", e.__class__.__name__, e)
+                self.br.upd.emit({"state": "unknown", "error": e.__class__.__name__})
+        threading.Thread(target=job, daemon=True, name="update-check").start()
+
+    def _ver_click(self):
+        if self.upd["state"] != "avail":
+            self.check_update()
+            return
+        info = self.upd["info"]
+        why = U.cannot_install(info)
+        if why:
+            LOG.info("update from the release page: %s", why)
+            self._status(f"обновление не устанавливается само ({why}): открываю страницу релиза")
+            QDesktopServices.openUrl(QUrl(info["page"]))
+            return
+        LOG.warning("update to %s: download", info["version"])
+        self.upd = {"state": "download", "info": info}
+        self._ver_show()
+
+        def job():
+            last = [-1]
+
+            def progress(done, total):
+                pct = done * 100 // total if total else 0
+                if pct != last[0]:
+                    last[0] = pct
+                    self.br.upd.emit({"state": "download", "info": info, "done": done, "total": total})
+            try:
+                new = U.prepare(info, progress)
+                self.br.upd.emit({"state": "install", "info": info, "new": new})
+            except Exception as e:
+                LOG.exception("update failed")
+                self.br.upd.emit({"state": "avail", "info": info, "error": f"{e.__class__.__name__}: {e}"})
+        threading.Thread(target=job, daemon=True, name="update").start()
+
+    def _on_upd(self, u):
+        self.upd = u
+        self._ver_show()
+        if u["state"] == "avail" and u.get("error"):
+            self._status(f"обновление не установлено: {u['error']}")
+        elif u["state"] == "install":
+            self._install()
+
+    def _install(self):
+        """The new version is unpacked: leave once no search or database update writes files."""
+        if getattr(self, "busy", False) or (self.db_state and self.db_state[0] == "run"):
+            self._status("обновление установится, когда закончится текущая работа")
+            QTimer.singleShot(1000, self._install)
+            return
+        new = self.upd["new"]
+        try:
+            added = U.add_missing_data(os.path.join(new, "data"), P.DATA)
+            LOG.warning("update: installing %s, new data files: %s", self.upd["info"]["version"], added)
+            U.swap(new)
+        except Exception as e:
+            LOG.exception("update failed")
+            self._on_upd({"state": "avail", "info": self.upd["info"], "error": f"{e.__class__.__name__}: {e}"})
+            return
+        self.close()
+        QApplication.quit()
+
     # ------------------------------------------------ left panel
     def _left(self):
         self.lw = QWidget()
@@ -598,6 +704,10 @@ class Main(QMainWindow):
         v.setContentsMargins(12, 12, 8, 12)
         v.setSpacing(10)
         self.board = Card("Плата")
+        self.btn_ver = QPushButton(objectName="ver")
+        self.btn_ver.clicked.connect(self._ver_click)
+        self.board.head.addWidget(self.btn_ver)
+        self._ver_show()
         v.addWidget(self.board)
         self.plan_card = Card("Слои")
         v.addWidget(self.plan_card)
@@ -1835,7 +1945,12 @@ def selftest():
         lines.append(f"english: {w.lbl_status.text()}")
         etch = sum(1 for kv in text.split("|") if kv.startswith("TRACEIMPEDANCE_V8_") and "ETCH=" in kv)
         lines.append(f"altium etch: {etch} of {n} trace impedances")
-        ok = bool(res) and r is not None and n >= len(spec["reqs"]) and nk == n and etch == n
+        orient = "".join(kv[-1] for kv in text.split("|") if re.match(r"LAYER_V8_\d+COPPERORIENTATION=", kv))
+        lines.append(f"altium copper orientation: {orient}")
+        lines.append(f"update: version button '{w.btn_ver.text()}', 1.10.0 newer than 1.9.9: {U.is_newer('1.10.0', '1.9.9')}, "
+                     f"archive {U.asset_name(__version__)}")
+        ok = (bool(res) and r is not None and n >= len(spec["reqs"]) and nk == n and etch == n
+              and orient == "00101011" and U.is_newer("1.10.0", "1.9.9") and not U.is_newer("v1.2.0", "1.2.0"))
         w._fab_changed(["rezonit"])
         w.st.update(layers=6, plan="SGSSGS", names={}, thick=[1.5], outer=1.0)
         spec = w._spec()
@@ -1879,8 +1994,11 @@ def main():
     setup(app)
     if test:
         sys.exit(selftest())
+    if P.FROZEN:
+        U.cleanup()
     w = Main()
     w.show()
+    w.check_update()
     code = app.exec()
     LOG.warning("exit code %s", code)
     sys.exit(code)

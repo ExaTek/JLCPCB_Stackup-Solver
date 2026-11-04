@@ -5,6 +5,28 @@ import re
 LANG = "ru"
 
 PAIRS = [
+    # program update
+    ("Есть обновление", "Update available"),
+    ("Устанавливаю…", "Installing…"),
+    ("Скачиваю", "Downloading"),
+    ("программа перезапустится; база стеков, настройки и кэш в data/ останутся как есть",
+     "the program restarts; the stack database, settings and cache in data/ stay as they are"),
+    ("проверяю, есть ли новая версия…", "checking for a new version…"),
+    ("установлена последняя версия", "the latest version is installed"),
+    ("нажмите, чтобы проверить ещё раз", "click to check again"),
+    ("не удалось проверить обновления", "could not check for updates"),
+    ("скачать и установить версию", "download and install version"),
+    (" вместо ", " instead of "),
+    ("обновление не установлено", "update not installed"),
+    ("обновление не устанавливается само", "the update cannot install itself"),
+    ("открываю страницу релиза", "opening the release page"),
+    ("обновление установится, когда закончится текущая работа", "the update installs when the current work ends"),
+    ("программа перезапустится", "the program restarts"),
+    ("запуск из исходников", "running from source"),
+    ("для этой системы нет готовой сборки", "no build for this system"),
+    ("нет права записи в папку программы", "the program folder is not writable"),
+    ("в релизе нет файла", "the release has no file"),
+    ("версия ", "version "),
     # long sentences / tooltips
     ("язык интерфейса / interface language", "interface language"),
     ("Задайте параметры слева и нажмите «Подобрать стек».\n\nПервый расчёт новой комбинации — до минуты, дальше из кэша.",

@@ -10,15 +10,15 @@ Besides JLCPCB it knows the typical stackups of **Rezonit** (Russian PCB factory
 
 ## Download and run
 
-**Current version: 1.2.0** (shown in the title of the program's window; earlier versions are on the [Releases](../../releases) page).
+**Current version: 1.2.1** (shown in the title of the program's window; earlier versions are on the [Releases](../../releases) page).
 
 Download the ready program for your system, unpack it anywhere you can write to and start it.
 Nothing to install, no Python needed.
 
 | system | download (ready program) | start |
 |---|---|---|
-| **Windows** 10/11 x64 | **[JLCPCB-Stackup-Solver-v1.2.0-windows-x64.zip](https://github.com/ExaTek/JLCPCB_Stackup-Solver/releases/download/v1.2.0/JLCPCB-Stackup-Solver-v1.2.0-windows-x64.zip)** | unpack, run `JLCPCB-Stackup-Solver.exe` (SmartScreen: *More info → Run anyway*) |
-| **Linux** x64, glibc 2.35+ (Ubuntu 22.04+, Debian 12+, Fedora 36+) | **[JLCPCB-Stackup-Solver-v1.2.0-linux-x64.tar.gz](https://github.com/ExaTek/JLCPCB_Stackup-Solver/releases/download/v1.2.0/JLCPCB-Stackup-Solver-v1.2.0-linux-x64.tar.gz)** | `tar xzf JLCPCB-Stackup-Solver-v1.2.0-linux-x64.tar.gz && ./JLCPCB-Stackup-Solver/JLCPCB-Stackup-Solver` |
+| **Windows** 10/11 x64 | **[JLCPCB-Stackup-Solver-v1.2.1-windows-x64.zip](https://github.com/ExaTek/JLCPCB_Stackup-Solver/releases/download/v1.2.1/JLCPCB-Stackup-Solver-v1.2.1-windows-x64.zip)** | unpack, run `JLCPCB-Stackup-Solver.exe` (SmartScreen: *More info → Run anyway*) |
+| **Linux** x64, glibc 2.35+ (Ubuntu 22.04+, Debian 12+, Fedora 36+) | **[JLCPCB-Stackup-Solver-v1.2.1-linux-x64.tar.gz](https://github.com/ExaTek/JLCPCB_Stackup-Solver/releases/download/v1.2.1/JLCPCB-Stackup-Solver-v1.2.1-linux-x64.tar.gz)** | `tar xzf JLCPCB-Stackup-Solver-v1.2.1-linux-x64.tar.gz && ./JLCPCB-Stackup-Solver/JLCPCB-Stackup-Solver` |
 
 > "Source code (zip / tar.gz)" on the [Releases](../../releases) page is added by GitHub
 > automatically: that is the source, not the program.
@@ -33,7 +33,7 @@ JLCPCB-Stackup-Solver/
     └── settings.json, cache/, logs/   created by the program
 ```
 
-Keep `data/` next to the program; to move to a new version, copy your `data/` over.
+The button at the top right of the **Board** block shows the version: green is the latest one, yellow **Update available** downloads and installs the new version and restarts the program. `data/` is kept: the refreshed stack database, settings and caches are not overwritten.
 
 ### From source (any OS with Python 3.10+)
 
@@ -114,7 +114,7 @@ check the final order with the factory.
 
 **Кратко по-русски.** Программа подбирает самый дешёвый заказываемый стек JLCPCB под нужные
 импедансы, считает ширины и зазоры на всех сигнальных слоях и сохраняет стек с профилями
-импеданса для Altium Designer (Windows) или проект KiCad (Linux/macOS). Текущая версия — **1.2.0**. Скачайте готовую программу по ссылке из таблицы [Download and run](#download-and-run) (не «Source code»),
+импеданса для Altium Designer (Windows) или проект KiCad (Linux/macOS). Текущая версия — **1.2.1**. Скачайте готовую программу по ссылке из таблицы [Download and run](#download-and-run) (не «Source code»),
 распакуйте и запустите — установка не нужна. Папка `data/` рядом с программой хранит базу стеков
 (обновляется в «Настройках»), настройки, кэш и журналы. Интерфейс переключается кнопкой RU/EN.
 Переключатель «Завод» вверху формы даёт вместо JLCPCB типовые сборки **Резонита** (4/6/8 слоёв,

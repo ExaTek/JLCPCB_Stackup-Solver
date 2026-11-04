@@ -137,7 +137,9 @@ def build(stack, plan, result, reqs, names=None, finish="ENIG", mask=None, outer
             guid = g()
             ids[it["name"]] = guid
             place = "1" if top else ("2" if bot else "0")
-            orient = "0" if k < n / 2 else "1"
+            # the foil is bonded to the dielectric it is etched on: the core for an inner layer,
+            # the prepreg for an outer one. 0 = Above (dielectric below the copper), 1 = Below.
+            orient = "0" if top or it["core"] == "upper" else "1"
             nm = names[k]
             add({"LAYERID": lid, "ID": guid, "TYPEID": TYPE["copper"], "NAME": nm, "ISHIDDEN": "False",
                  "USEDBYPRIMS": "False", "COPTHICK": fmt(t), "COMPONENTPLACEMENT": place,
